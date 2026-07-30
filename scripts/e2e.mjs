@@ -86,7 +86,20 @@ let products = [];
   );
   products = data?.items ?? [];
   expect("returns seeded products", products.length === 12, `got ${products.length}`);
-  expect("degrades without Elasticsearch", data?.degraded === true, `degraded=${data?.degraded}`);
+  // Both values are correct: false means the Elasticsearch index is serving,
+  // true means it was unreachable and the Postgres trigram fallback took over.
+  // This originally asserted `true`, because it was written on a machine with
+  // no Elasticsearch — so a healthy deployment failed the test.
+  expect(
+    "search reports which backend served it",
+    typeof data?.degraded === "boolean",
+    `degraded=${data?.degraded} (expected a boolean)`,
+  );
+  console.log(
+    data?.degraded
+      ? "        note: Elasticsearch unreachable, serving the Postgres fallback"
+      : "        note: Elasticsearch index is live",
+  );
 
   const { status: cs, data: cd } = await call("GET", "/catalog/categories", { auth: false });
   expect(
