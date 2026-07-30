@@ -7,6 +7,8 @@ import type {
   CheckoutPreview,
   Facet,
   Order,
+  OrderEvent,
+  OrderItem,
   OrderSummary,
   Paginated,
   PlacedOrder,
@@ -105,7 +107,11 @@ export function useProduct(productId: string | undefined) {
   return useQuery({
     queryKey: keys.product(productId ?? ""),
     queryFn: () => api.get<{ product: Product }>(`/catalog/products/${productId}`),
-    select: (data) => data.product,
+    select: (data): Product => ({
+      ...((data?.product ?? {}) as Product),
+      // Feeds Object.keys(), which throws outright on undefined.
+      attributes: data?.product?.attributes ?? {},
+    }),
     enabled: Boolean(productId),
     staleTime: 60_000,
   });
@@ -310,7 +316,11 @@ export function useOrder(orderId: string | undefined) {
   return useQuery({
     queryKey: keys.order(orderId ?? ""),
     queryFn: () => api.get<{ order: Order }>(`/orders/${orderId}`),
-    select: (data) => data.order,
+    select: (data): Order => ({
+      ...((data?.order ?? {}) as Order),
+      items: asArray<OrderItem>(data?.order?.items),
+      timeline: asArray<OrderEvent>(data?.order?.timeline),
+    }),
     enabled: Boolean(orderId),
   });
 }
@@ -336,6 +346,11 @@ export function useCheckoutPreview(shippingAddressId: string | null, enabled: bo
       api.get<CheckoutPreview>("/checkout/preview", {
         query: shippingAddressId ? { shippingAddressId } : undefined,
       }),
+    select: (data): CheckoutPreview => ({
+      ...((data ?? {}) as CheckoutPreview),
+      items: asArray<CartItem>(data?.items),
+      unavailable: asArray<UnavailableItem>(data?.unavailable),
+    }),
     enabled,
     // Prices must be current at the point of purchase.
     staleTime: 0,

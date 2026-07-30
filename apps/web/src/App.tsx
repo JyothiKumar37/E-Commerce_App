@@ -15,14 +15,24 @@ import { AccountLayout, AddressesPage, ProfilePage, SecurityPage } from "@/pages
  * Catches render-time exceptions so one broken component shows a recoverable
  * message instead of unmounting the whole app to a blank white page.
  */
-class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
-  state = { error: null as Error | null };
+interface BoundaryState {
+  error: Error | null;
+  componentStack: string | null;
+}
+
+class ErrorBoundary extends Component<{ children: ReactNode }, BoundaryState> {
+  state: BoundaryState = { error: null, componentStack: null };
 
   static getDerivedStateFromError(error: Error) {
     return { error };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    // The component stack is the only part of this that names WHICH component
+    // threw. A minified JS stack points at bundle offsets and is useless
+    // without a source map; the component stack stays readable in production.
+    // Keeping it console-only cost two round trips diagnosing a live crash.
+    this.setState({ componentStack: info.componentStack ?? null });
     // In production this is where a Sentry/OTel exporter would go.
     console.error("Unhandled render error", error, info.componentStack);
   }
@@ -51,10 +61,26 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
             <p className="mt-3 font-mono text-xs text-red-700 dark:text-red-400">
               {this.state.error.name}: {this.state.error.message}
             </p>
+            {this.state.componentStack && (
+              <>
+                <p className="mt-4 text-xs font-medium text-slate-700 dark:text-slate-300">
+                  Component stack — the topmost entry is the component that threw
+                </p>
+                <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-400">
+                  {this.state.componentStack.trim()}
+                </pre>
+              </>
+            )}
+
             {this.state.error.stack && (
-              <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-all text-xs text-slate-500 dark:text-slate-400">
-                {this.state.error.stack}
-              </pre>
+              <>
+                <p className="mt-4 text-xs font-medium text-slate-700 dark:text-slate-300">
+                  JavaScript stack
+                </p>
+                <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap break-all text-xs text-slate-500 dark:text-slate-400">
+                  {this.state.error.stack}
+                </pre>
+              </>
             )}
             <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
               A failed API call is the usual cause. Check the Network tab for a request to{" "}

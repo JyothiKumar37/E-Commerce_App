@@ -86,7 +86,7 @@ export function HomePage() {
       )}
 
       {/* ------------------------ personalised ------------------------- */}
-      {user && forMe.data && forMe.data.recommendations.length > 0 && (
+      {user && !!forMe.data?.recommendations?.length && (
         <Shelf
           title="Picked for you"
           subtitle={
@@ -133,7 +133,7 @@ export function HomePage() {
       </section>
 
       {/* -------------------------- trending --------------------------- */}
-      {trending.data && trending.data.recommendations.length > 0 && (
+      {!!trending.data?.recommendations?.length && (
         <Shelf
           title="Trending this week"
           products={trending.data.recommendations}

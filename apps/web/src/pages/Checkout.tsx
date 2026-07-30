@@ -292,7 +292,7 @@ export function CheckoutPage() {
                 </Alert>
               )}
 
-              {preview.data?.unavailable && preview.data.unavailable.length > 0 && (
+              {!!preview.data?.unavailable?.length && (
                 <Alert kind="warning">
                   Some items became unavailable.{" "}
                   <Link to="/cart" className="font-medium underline">
