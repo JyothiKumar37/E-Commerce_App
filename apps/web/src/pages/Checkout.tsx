@@ -325,7 +325,7 @@ export function CheckoutPage() {
                 <section>
                   <h3 className="mb-2 font-medium">Items</h3>
                   <ul className="space-y-2">
-                    {preview.data?.items.map((item) => (
+                    {preview.data?.items?.map((item) => (
                       <li key={item.productId} className="flex justify-between gap-4">
                         <span className="text-slate-600 dark:text-slate-400">
                           {item.name} × {item.quantity}

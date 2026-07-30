@@ -253,7 +253,7 @@ export function ProductPage() {
             {user ? (
               <ReviewForm
                 productId={product.productId}
-                alreadyReviewed={reviews?.items.some((r) => r.isMine)}
+                alreadyReviewed={reviews?.items?.some((r) => r.isMine)}
               />
             ) : (
               <Alert kind="info">

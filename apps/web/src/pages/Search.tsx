@@ -253,7 +253,7 @@ export function SearchPage() {
         ) : (
           <>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
-              {data?.items.map((product) => (
+              {data?.items?.map((product) => (
                 <ProductCard
                   key={product.productId}
                   product={product}

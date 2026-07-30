@@ -37,6 +37,30 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
             description="An unexpected error occurred while rendering this page."
             action={<Button onClick={() => window.location.reload()}>Reload the page</Button>}
           />
+
+          {/*
+            Show the actual message. A bare "something went wrong" forces
+            whoever hits this to open devtools to learn anything at all, which
+            is a poor trade for hiding a client-side error the visitor's own
+            browser already has. Collapsed so it does not dominate the page.
+          */}
+          <details className="mt-6 rounded-lg border border-slate-200 bg-white p-4 text-sm dark:border-slate-800 dark:bg-slate-900">
+            <summary className="cursor-pointer font-medium text-slate-700 dark:text-slate-300">
+              Error details
+            </summary>
+            <p className="mt-3 font-mono text-xs text-red-700 dark:text-red-400">
+              {this.state.error.name}: {this.state.error.message}
+            </p>
+            {this.state.error.stack && (
+              <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-all text-xs text-slate-500 dark:text-slate-400">
+                {this.state.error.stack}
+              </pre>
+            )}
+            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+              A failed API call is the usual cause. Check the Network tab for a request to{" "}
+              <code>/api/…</code> that did not return JSON.
+            </p>
+          </details>
         </div>
       );
     }

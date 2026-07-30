@@ -120,7 +120,7 @@ export function HomePage() {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {newest.data?.items.map((product) => (
+            {newest.data?.items?.map((product) => (
               <ProductCard
                 key={product.productId}
                 product={product}
