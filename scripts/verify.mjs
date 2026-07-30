@@ -229,6 +229,39 @@ async function checkCompose(workspaces) {
   note(`compose builds ${buildCount} images`);
 }
 
+/**
+ * The storefront's API base URL may carry a path prefix (http://host/api behind
+ * a reverse proxy), and `new URL(absolutePath, base)` discards it. That bug shipped:
+ * every request landed on the storefront instead of the gateway, which showed up
+ * as 405s on POSTs and index.html parsed as JSON on GETs — and was invisible in
+ * development, where the base has no path.
+ */
+async function checkApiClient() {
+  const file = "apps/web/src/lib/api.ts";
+  if (!(await exists(file))) {
+    fail(`missing ${file}`);
+    return;
+  }
+  // Strip comments: the code documents the pattern it avoids, which would
+  // otherwise trip the check below. Second time this bit me, hence the note.
+  const source = (await readText(file))
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("//"))
+    .join("\n");
+
+  if (/new URL\(\s*path/.test(source)) {
+    fail(
+      `${file}: builds the request URL with new URL(path, base), which drops any ` +
+        "path prefix on the base (http://host/api). Concatenate base + path instead.",
+    );
+  }
+  if (!/API_URL\.replace/.test(source)) {
+    fail(`${file}: should normalise trailing slashes on the API base before concatenating`);
+  }
+
+  note("storefront API client preserves a base path prefix");
+}
+
 /** Relative imports must resolve; a bad path only fails at runtime otherwise. */
 async function checkImports(workspaces) {
   let checked = 0;
@@ -308,6 +341,7 @@ await checkWorkspaceManifests(workspaces);
 await checkServiceLayout(workspaces);
 await checkDockerfiles(workspaces);
 await checkCompose(workspaces);
+await checkApiClient();
 await checkImports(workspaces);
 await checkEnvTemplate();
 

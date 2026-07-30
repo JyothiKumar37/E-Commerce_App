@@ -65,7 +65,20 @@ interface RequestOptions {
 }
 
 function buildUrl(path: string, query?: RequestOptions["query"]): string {
-  const url = new URL(path.startsWith("/") ? path : `/${path}`, API_URL);
+  // Concatenate the base and path rather than using `new URL(path, base)`.
+  //
+  // An absolute path replaces the base's ENTIRE path, so with a base that
+  // carries a prefix the prefix is silently discarded:
+  //
+  //   new URL("/catalog/search", "http://host/api")  ->  http://host/catalog/search
+  //
+  // Behind a reverse proxy that serves the API under /api, every request then
+  // landed on the storefront instead: POSTs got 405 from nginx, and GETs got
+  // index.html with a 200 that parsed as JSON garbage. Invisible in
+  // development, where VITE_API_URL has no path component.
+  const base = API_URL.replace(/\/+$/, "");
+  const suffix = path.startsWith("/") ? path : `/${path}`;
+  const url = new URL(base + suffix);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value === undefined || value === null || value === "") continue;
