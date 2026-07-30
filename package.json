@@ -1,0 +1,71 @@
+{
+  "name": "ecommerce-store",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Production-grade microservices e-commerce platform",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "services/*"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/check-node-version.mjs",
+    "up": "docker compose up --build -d",
+    "up:infra": "docker compose up -d postgres redis elasticsearch",
+    "down": "docker compose down",
+    "reset": "docker compose down -v",
+    "logs": "docker compose logs -f",
+    "ps": "docker compose ps",
+    "db:migrate": "node packages/database/migrate.js up",
+    "db:status": "node packages/database/migrate.js status",
+    "db:reset": "node packages/database/migrate.js down",
+    "db:seed": "node packages/database/seed.js",
+    "db:setup": "docker compose run --rm migrate && docker compose run --rm seed",
+    "dev:web": "npm run dev --workspace @ecom/web",
+    "dev:gateway": "npm run dev --workspace @ecom/api-gateway",
+    "build": "npm run build --workspace @ecom/web",
+    "typecheck": "npm run typecheck --workspace @ecom/web",
+    "test": "npm run test --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "verify": "node scripts/verify.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "test:e2e": "node scripts/e2e.mjs",
+    "test:oversell": "node scripts/oversell.mjs",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run verify",
+    "secrets": "bash scripts/generate-secrets.sh",
+    "build:images": "bash scripts/build-images.sh"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^7.7.0",
+    "@typescript-eslint/parser": "^7.7.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-n": "^16.6.2",
+    "eslint-plugin-promise": "^6.1.1",
+    "eslint-plugin-react": "^7.34.1",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "prettier": "^3.2.5",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18.18.0",
+    "npm": ">=9.0.0"
+  },
+  "//overrides": [
+    "Rollup 4 ships a native binary requiring glibc >= 2.32, which Vite loads",
+    "even to start its dev server; on Ubuntu 20.04 (glibc 2.31) the toolchain",
+    "fails to launch at all. @rollup/wasm-node is the maintainer's WebAssembly",
+    "build with an identical API and no libc dependency.",
+    "Remove this override once every machine and CI runner is on glibc >= 2.32;",
+    "the native build is roughly twice as fast on large bundles."
+  ],
+  "overrides": {
+    "rollup": "npm:@rollup/wasm-node@^4.62.0"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@ecom/search",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@ecom/shared": "1.0.0",
+    "@elastic/elasticsearch": "^8.13.0",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3"
+  }
+}

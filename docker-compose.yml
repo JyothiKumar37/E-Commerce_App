@@ -1,0 +1,410 @@
+# Local development stack.
+#
+#   npm run secrets      # writes .env
+#   npm run up           # build and start everything
+#   npm run db:setup     # migrate + seed
+#
+# One file covers both environments. Everything that differs is an environment
+# variable with a development default, so `docker compose up -d --build` is the
+# whole story either way — the .env decides which stack you get.
+#
+# On a server the storefront's nginx is the only thing on a public port. It
+# serves the built bundle and proxies /api to the gateway on the same origin,
+# so there are no CORS preflights and the refresh cookie stays first-party.
+#
+# The gateway refuses to start if PUBLIC_URL names a non-local origin while
+# NODE_ENV is development, which would otherwise serve real traffic with the
+# CORS, database-TLS and mock-payment guards all disabled.
+#
+# Storefront:  http://localhost:5173
+# API gateway: http://localhost:8080
+#
+# Published ports bind to 127.0.0.1 only. Containers reach each other by service
+# name on the `ecom` network, so the host binding exists purely for local tools
+# (psql, redis-cli) — nothing here is reachable from another machine.
+
+# Log rotation applies in development too — an unbounded json-file driver can
+# fill a laptop's disk just as easily as a server's.
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+x-service-base: &service-base
+  restart: unless-stopped
+  logging: *logging
+  # Node installs its own SIGTERM handler and spawns no children, so this is
+  # belt-and-braces: a tini shim to reap anything unexpected.
+  init: true
+  networks: [ecom]
+  # Every service reads the same base config; per-service overrides follow.
+  environment: &service-env
+    NODE_ENV: ${NODE_ENV:-development}
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+    INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?set INTERNAL_JWT_SECRET in .env}
+    CORS_ORIGINS: ${PUBLIC_URL:-http://localhost:5173}
+    DATABASE_URL: postgres://ecom:${POSTGRES_PASSWORD:-ecom_dev_password}@postgres:5432/ecom
+    PGSSLMODE: ${PGSSLMODE:-disable}
+    # Postgres is on this private bridge network; the traffic never leaves the
+    # host. Production otherwise requires TLS, so the topology is stated.
+    ALLOW_INSECURE_DB_CONNECTION: ${ALLOW_INSECURE_DB_CONNECTION:-true}
+    REDIS_URL: redis://redis:6379
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+x-healthcheck: &node-healthcheck
+  test: ["CMD", "curl", "-fsS", "http://localhost:$${PORT}/healthz"]
+  interval: 15s
+  timeout: 3s
+  retries: 5
+  start_period: 20s
+
+services:
+  # ------------------------------------------------------------------
+  # Infrastructure
+  # ------------------------------------------------------------------
+  postgres:
+    image: postgres:16.3-alpine
+    logging: *logging
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ecom
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ecom_dev_password}
+      POSTGRES_DB: ecom
+      # Deterministic collation so index ordering matches across machines.
+      POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=en-US"
+    ports: ["127.0.0.1:5432:5432"]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecom -d ecom"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [ecom]
+
+  redis:
+    image: redis:7.2-alpine
+    logging: *logging
+    restart: unless-stopped
+    # Carts are recoverable, but appendonly keeps a restart from emptying every
+    # basket in the shop.
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports: ["127.0.0.1:6379:6379"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [ecom]
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    logging: *logging
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      # Security off for local only. Production sets ELASTICSEARCH_API_KEY and
+      # runs with TLS; the client picks the auth mode up automatically.
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports: ["127.0.0.1:9200:9200"]
+    volumes:
+      - elastic-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'curl -fsS http://localhost:9200/_cluster/health | grep -qE ''"status":"(green|yellow)"''',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    networks: [ecom]
+
+  # ------------------------------------------------------------------
+  # One-shot jobs
+  # ------------------------------------------------------------------
+  migrate:
+    build:
+      context: .
+      dockerfile: packages/database/Dockerfile
+    profiles: [tools]
+    logging: *logging
+    command: ["node", "packages/database/migrate.js", "up"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: postgres://ecom:${POSTGRES_PASSWORD:-ecom_dev_password}@postgres:5432/ecom
+      PGSSLMODE: ${PGSSLMODE:-disable}
+      ALLOW_INSECURE_DB_CONNECTION: ${ALLOW_INSECURE_DB_CONNECTION:-true}
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [ecom]
+
+  seed:
+    build:
+      context: .
+      dockerfile: packages/database/Dockerfile
+    profiles: [tools]
+    logging: *logging
+    command: ["node", "packages/database/seed.js"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: postgres://ecom:${POSTGRES_PASSWORD:-ecom_dev_password}@postgres:5432/ecom
+      PGSSLMODE: ${PGSSLMODE:-disable}
+      ALLOW_INSECURE_DB_CONNECTION: ${ALLOW_INSECURE_DB_CONNECTION:-true}
+      # Demo data refuses to load into production without this.
+      ALLOW_SEED: ${ALLOW_SEED:-yes}
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [ecom]
+
+  # ------------------------------------------------------------------
+  # Application services
+  # ------------------------------------------------------------------
+  api-gateway:
+    <<: *service-base
+    build:
+      context: .
+      dockerfile: apps/api-gateway/Dockerfile
+    environment:
+      <<: *service-env
+      SERVICE_NAME: api-gateway
+      PORT: 8080
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-15m}
+      REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-30}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      # Must match the path the BROWSER sees. Direct on :8080 in development;
+      # behind nginx's /api prefix on a server the browser sees /api/auth, and
+      # a mismatch ends every session at the access-token TTL with no error.
+      COOKIE_PATH: ${COOKIE_PATH:-/auth}
+      ACCOUNT_SERVICE_URL: http://account:8081
+      CART_SERVICE_URL: http://cart:8082
+      INVENTORY_SERVICE_URL: http://inventory:8083
+      ORDER_STATUS_SERVICE_URL: http://order-status:8084
+      PAYMENT_SERVICE_URL: http://payment:8085
+      PLACE_ORDER_SERVICE_URL: http://place-order:8086
+      PRODUCT_REVIEW_SERVICE_URL: http://product-review:8087
+      RECOMMENDATION_SERVICE_URL: http://recommendation:8088
+      RECOMMENDATION_GENERATION_SERVICE_URL: http://recommendation-generation:8089
+      SEARCH_SERVICE_URL: http://search:8090
+      SHIPPING_SERVICE_URL: http://shipping:8091
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      <<: *node-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/healthz"]
+
+  account:
+    <<: *service-base
+    build:
+      context: .
+      dockerfile: services/account/Dockerfile
+    environment:
+      <<: *service-env
+      SERVICE_NAME: account
+      PORT: 8081
+    healthcheck:
+      <<: *node-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/healthz"]
+
+  cart:
+    <<: *service-base
+    build:
+      context: .
+      dockerfile: services/cart/Dockerfile
+    environment:
+      <<: *service-env
+      SERVICE_NAME: cart
+      PORT: 8082
+      SEARCH_SERVICE_URL: http://search:8090
+    depends_on:
+      redis: { condition: service_healthy }
+    healthcheck:
+      <<: *node-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8082/healthz"]
+
+  inventory:
+    <<: *service-base
+    build:
+      context: .
+      dockerfile: services/inventory/Dockerfile
+    environment:
+      <<: *service-env
+      SERVICE_NAME: inventory
+      PORT: 8083
+      RESERVATION_TTL_SECONDS: ${RESERVATION_TTL_SECONDS:-900}
+    healthcheck:
+      <<: *node-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8083/healthz"]
+
+  order-status:
+    <<: *service-base
+    build:
+      context: .
+      dockerfile: services/order-status/Dockerfile
+    environment:
+      <<: *service-env
+      SERVICE_NAME: order-status
+      PORT: 8084
+      INVENTORY_SERVICE_URL: http://inventory:8083
+    healthcheck:
+      <<: *node-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8084/healthz"]
+
+  payment:
+    <<: *service-base
+    build:
+      context: .
+      dockerfile: services/payment/Dockerfile
+    environment:
+      <<: *service-env
+      SERVICE_NAME: payment
+      PORT: 8085
+      PAYMENT_PROVIDER: mock
+      MOCK_DECLINE_RATE: ${MOCK_DECLINE_RATE:-0}
+      # The mock provider approves payments without charging anyone, so the
+      # service refuses to start in production unless this is set.
+      ALLOW_MOCK_PAYMENTS_IN_PRODUCTION: ${ALLOW_MOCK_PAYMENTS_IN_PRODUCTION:-false}
+    healthcheck:
+      <<: *node-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8085/healthz"]
+
+  place-order:
+    <<: *service-base
+    build:
+      context: .
+      dockerfile: services/place-order/Dockerfile
+    environment:
+      <<: *service-env
+      SERVICE_NAME: place-order
+      PORT: 8086
+      ACCOUNT_SERVICE_URL: http://account:8081
+      CART_SERVICE_URL: http://cart:8082
+      INVENTORY_SERVICE_URL: http://inventory:8083
+      PAYMENT_SERVICE_URL: http://payment:8085
+      SHIPPING_SERVICE_URL: http://shipping:8091
+      TAX_RATE: ${TAX_RATE:-0.19}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      <<: *node-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8086/healthz"]
+
+  product-review:
+    <<: *service-base
+    build:
+      context: .
+      dockerfile: services/product-review/Dockerfile
+    environment:
+      <<: *service-env
+      SERVICE_NAME: product-review
+      PORT: 8087
+      REQUIRE_VERIFIED_PURCHASE: ${REQUIRE_VERIFIED_PURCHASE:-false}
+    healthcheck:
+      <<: *node-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8087/healthz"]
+
+  recommendation:
+    <<: *service-base
+    build:
+      context: .
+      dockerfile: services/recommendation/Dockerfile
+    environment:
+      <<: *service-env
+      SERVICE_NAME: recommendation
+      PORT: 8088
+    healthcheck:
+      <<: *node-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8088/healthz"]
+
+  recommendation-generation:
+    <<: *service-base
+    build:
+      context: .
+      dockerfile: services/recommendation-generation/Dockerfile
+    environment:
+      <<: *service-env
+      SERVICE_NAME: recommendation-generation
+      PORT: 8089
+      RUN_ON_SCHEDULE: ${RECO_RUN_ON_SCHEDULE:-true}
+      RUN_ON_BOOT: ${RECO_RUN_ON_BOOT:-false}
+    healthcheck:
+      <<: *node-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8089/healthz"]
+
+  search:
+    <<: *service-base
+    build:
+      context: .
+      dockerfile: services/search/Dockerfile
+    environment:
+      <<: *service-env
+      SERVICE_NAME: search
+      PORT: 8090
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_INDEX: products
+      INDEXER_INTERVAL_MS: ${INDEXER_INTERVAL_MS:-5000}
+    depends_on:
+      postgres: { condition: service_healthy }
+      elasticsearch: { condition: service_healthy }
+    healthcheck:
+      <<: *node-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8090/healthz"]
+
+  shipping:
+    <<: *service-base
+    build:
+      context: .
+      dockerfile: services/shipping/Dockerfile
+    environment:
+      <<: *service-env
+      SERVICE_NAME: shipping
+      PORT: 8091
+    healthcheck:
+      <<: *node-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8091/healthz"]
+
+  # ------------------------------------------------------------------
+  # Storefront
+  # ------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: ${WEB_TARGET:-development}
+      args:
+        # Vite inlines this at build time, so it must be the public URL.
+        # On a server the API lives under /api behind nginx; in development it is :8080.
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+    restart: unless-stopped
+    logging: *logging
+    # Development binds the Vite dev server to loopback. A deployment sets
+    # WEB_PUBLISH=80:80 so nginx serves the storefront and proxies /api to the
+    # gateway on the same origin.
+    ports: ["${WEB_PUBLISH:-127.0.0.1:5173:5173}"]
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+    volumes:
+      # Hot reload in development; ignored by the production target.
+      - ./apps/web/src:/app/apps/web/src:ro
+      - ./apps/web/index.html:/app/apps/web/index.html:ro
+    depends_on: [api-gateway]
+    networks: [ecom]
+
+networks:
+  ecom:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  elastic-data:

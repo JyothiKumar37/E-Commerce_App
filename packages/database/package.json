@@ -1,0 +1,17 @@
+{
+  "name": "@ecom/database",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Schema migrations, migration runner and development seed data",
+  "scripts": {
+    "migrate": "node migrate.js up",
+    "migrate:status": "node migrate.js status",
+    "migrate:reset": "node migrate.js down",
+    "seed": "node seed.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "pg": "^8.11.5"
+  }
+}

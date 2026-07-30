@@ -1,0 +1,22 @@
+{
+  "name": "@ecom/api-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "cross-env NODE_ENV=test node --test test/",
+    "test:coverage": "cross-env NODE_ENV=test c8 --reporter=text --reporter=lcov node --test test/"
+  },
+  "dependencies": {
+    "@ecom/shared": "1.0.0",
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "c8": "^9.1.0",
+    "cross-env": "^7.0.3"
+  }
+}

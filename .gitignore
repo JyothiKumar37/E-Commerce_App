@@ -1,0 +1,30 @@
+node_modules/
+dist/
+build/
+coverage/
+.nyc_output/
+
+# Secrets — .env.example is the template that IS committed.
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+logs/
+*.log
+npm-debug.log*
+.npm/
+
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local editor/agent state. Machine-specific, not part of the project.
+.claude/
+
+.cache/
+.vite/
+*.tsbuildinfo

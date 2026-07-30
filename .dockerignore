@@ -1,0 +1,28 @@
+# Keep the build context small and prevent secrets or host-built artefacts
+# from ever entering an image layer.
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/.vite
+**/*.tsbuildinfo
+
+.git
+.github
+.vscode
+.idea
+
+# Secrets: .env.example is the committed template and is NOT ignored.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+**/logs
+**/*.log
+npm-debug.log*
+
+**/test
+**/*.test.js
+**/*.spec.js
