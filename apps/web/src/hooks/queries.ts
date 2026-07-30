@@ -3,17 +3,48 @@ import { api, newIdempotencyKey } from "@/lib/api";
 import type {
   Address,
   Cart,
+  CartItem,
   CheckoutPreview,
+  Facet,
   Order,
   OrderSummary,
   Paginated,
   PlacedOrder,
   Product,
   Recommendation,
+  Review,
   ReviewsResponse,
   SearchResponse,
+  UnavailableItem,
   User,
 } from "@/lib/types";
+
+/**
+ * Response normalisers.
+ *
+ * Every list endpoint is coerced to a complete shape before a component sees
+ * it, so a missing or malformed field can never surface as
+ * `Cannot read properties of undefined`. Guarding at each render site instead
+ * means one forgotten `?.` takes down a whole route via the error boundary —
+ * which is exactly what happened on the storefront home page.
+ *
+ * The API is trusted to be correct; this is about the failure mode when it is
+ * not. A page that renders an empty shelf is recoverable, a blank error screen
+ * is not.
+ */
+const asArray = <T>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
+
+const normalisePage = <T>(data: unknown): Paginated<T> => {
+  const d = (data ?? {}) as Partial<Paginated<T>>;
+  return {
+    items: asArray<T>(d.items),
+    page: d.page ?? 1,
+    pageSize: d.pageSize ?? 0,
+    total: d.total ?? 0,
+    totalPages: d.totalPages ?? 0,
+    hasNext: d.hasNext ?? false,
+  };
+};
 
 /** Query keys in one place so invalidation cannot drift from subscription. */
 export const keys = {
@@ -54,6 +85,15 @@ export function useSearch(
   return useQuery({
     queryKey: keys.search(params),
     queryFn: () => api.post<SearchResponse>("/catalog/search", params),
+    select: (data): SearchResponse => ({
+      ...normalisePage<Product>(data),
+      facets: {
+        categories: asArray<Facet>(data?.facets?.categories),
+        brands: asArray<Facet>(data?.facets?.brands),
+        price: data?.facets?.price ?? null,
+      },
+      degraded: data?.degraded ?? false,
+    }),
     // Search results are cheap to refetch but jarring to see change mid-scroll.
     staleTime: 30_000,
     placeholderData: (previous) => previous,
@@ -76,7 +116,7 @@ export function useCategories() {
     queryKey: keys.categories,
     queryFn: () =>
       api.get<{ categories: { category: string; count: number }[] }>("/catalog/categories"),
-    select: (data) => data.categories,
+    select: (data) => asArray<{ category: string; count: number }>(data?.categories),
     staleTime: 5 * 60_000,
   });
 }
@@ -105,7 +145,11 @@ export function useCart(enabled: boolean) {
   return useQuery({
     queryKey: keys.cart,
     queryFn: () => api.get<{ cart: Cart }>("/cart"),
-    select: (data) => data.cart,
+    select: (data): Cart => ({
+      ...((data?.cart ?? {}) as Cart),
+      items: asArray<CartItem>(data?.cart?.items),
+      unavailable: asArray<UnavailableItem>(data?.cart?.unavailable),
+    }),
     enabled,
     staleTime: 0,
   });
@@ -186,7 +230,7 @@ export function useAddresses(enabled: boolean) {
   return useQuery({
     queryKey: keys.addresses,
     queryFn: () => api.get<{ addresses: Address[] }>("/account/me/addresses"),
-    select: (data) => data.addresses,
+    select: (data) => asArray<Address>(data?.addresses),
     enabled,
   });
 }
@@ -256,6 +300,7 @@ export function useOrders(
   return useQuery({
     queryKey: keys.orders(params),
     queryFn: () => api.get<Paginated<OrderSummary>>("/orders", { query: params }),
+    select: (data) => normalisePage<OrderSummary>(data),
     enabled,
     placeholderData: (previous) => previous,
   });
@@ -331,6 +376,14 @@ export function useReviews(
   return useQuery({
     queryKey: keys.reviews(productId ?? "", params),
     queryFn: () => api.get<ReviewsResponse>(`/reviews/product/${productId}`, { query: params }),
+    select: (data): ReviewsResponse => ({
+      ...normalisePage<Review>(data),
+      summary: {
+        average: data?.summary?.average ?? 0,
+        total: data?.summary?.total ?? 0,
+        histogram: data?.summary?.histogram ?? {},
+      },
+    }),
     enabled: Boolean(productId),
     placeholderData: (previous) => previous,
   });
@@ -377,6 +430,10 @@ export function useRelatedProducts(productId: string | undefined, limit = 6) {
         `/recommendations/related/${productId}`,
         { query: { limit } },
       ),
+    select: (data) => ({
+      recommendations: asArray<Recommendation>(data?.recommendations),
+      strategy: data?.strategy ?? "unknown",
+    }),
     enabled: Boolean(productId),
     staleTime: 5 * 60_000,
   });
