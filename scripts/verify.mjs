@@ -182,9 +182,16 @@ async function checkDockerfiles(workspaces) {
     if (!/^CMD \["node", "/m.test(instructions)) {
       fail(`${dockerfile}: CMD should be exec-form node, so SIGTERM reaches the process`);
     }
-    // curl is not installed; a shell-form probe calling it would always fail.
-    if (/HEALTHCHECK[\s\S]{0,200}?curl/.test(instructions)) {
-      fail(`${dockerfile}: healthcheck uses curl, which is not in the image — use node -e fetch`);
+    // The image is the only place a healthcheck is defined, so it must exist.
+    // packages/database is a one-shot job that exits; it has nothing to probe.
+    if (path !== "packages/database") {
+      if (!/^HEALTHCHECK/m.test(instructions)) {
+        fail(`${dockerfile}: no HEALTHCHECK — the container would always report as healthy`);
+      }
+      // curl is not installed; a probe calling it fails on every interval.
+      if (/HEALTHCHECK[\s\S]{0,300}?curl/.test(instructions)) {
+        fail(`${dockerfile}: healthcheck uses curl, which is not in the image — use node -e fetch`);
+      }
     }
   }
 
@@ -206,12 +213,19 @@ async function checkCompose(workspaces) {
     }
   }
 
-  const buildCount = (compose.match(/dockerfile: /g) ?? []).length;
-  const healthCount = (compose.match(/healthz/g) ?? []).length;
-  if (healthCount < buildCount - 4) {
-    fail(`docker-compose.yml: ${buildCount} builds but only ${healthCount} healthchecks`);
+  // A compose-level `healthcheck:` silently REPLACES the image's, so defining
+  // one here means the carefully port-matched probe in the Dockerfile is
+  // ignored. That is exactly how twelve services ended up probing with curl
+  // after curl was removed from the images: every container reported unhealthy
+  // while the applications themselves were fine.
+  if (/test: \["CMD", "curl"/.test(compose)) {
+    fail(
+      "docker-compose.yml: a healthcheck shells out to curl, which is not installed " +
+        "in the service images. Remove the compose healthcheck and let the image's apply.",
+    );
   }
 
+  const buildCount = (compose.match(/dockerfile: /g) ?? []).length;
   note(`compose builds ${buildCount} images`);
 }
 

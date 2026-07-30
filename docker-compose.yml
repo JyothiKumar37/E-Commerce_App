@@ -29,6 +29,10 @@ x-logging: &logging
   driver: json-file
   options: { max-size: "10m", max-file: "3" }
 
+# Healthchecks are deliberately NOT defined here. Each image declares its own
+# HEALTHCHECK with its own port, and a compose-level `healthcheck:` silently
+# overrides the image's — which is how twelve services ended up probing with
+# curl after curl was removed from the images.
 x-service-base: &service-base
   restart: unless-stopped
   logging: *logging
@@ -51,13 +55,6 @@ x-service-base: &service-base
   depends_on:
     postgres:
       condition: service_healthy
-
-x-healthcheck: &node-healthcheck
-  test: ["CMD", "curl", "-fsS", "http://localhost:$${PORT}/healthz"]
-  interval: 15s
-  timeout: 3s
-  retries: 5
-  start_period: 20s
 
 services:
   # ------------------------------------------------------------------
@@ -198,9 +195,6 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
-    healthcheck:
-      <<: *node-healthcheck
-      test: ["CMD", "curl", "-fsS", "http://localhost:8080/healthz"]
 
   account:
     <<: *service-base
@@ -211,9 +205,6 @@ services:
       <<: *service-env
       SERVICE_NAME: account
       PORT: 8081
-    healthcheck:
-      <<: *node-healthcheck
-      test: ["CMD", "curl", "-fsS", "http://localhost:8081/healthz"]
 
   cart:
     <<: *service-base
@@ -227,9 +218,6 @@ services:
       SEARCH_SERVICE_URL: http://search:8090
     depends_on:
       redis: { condition: service_healthy }
-    healthcheck:
-      <<: *node-healthcheck
-      test: ["CMD", "curl", "-fsS", "http://localhost:8082/healthz"]
 
   inventory:
     <<: *service-base
@@ -241,9 +229,6 @@ services:
       SERVICE_NAME: inventory
       PORT: 8083
       RESERVATION_TTL_SECONDS: ${RESERVATION_TTL_SECONDS:-900}
-    healthcheck:
-      <<: *node-healthcheck
-      test: ["CMD", "curl", "-fsS", "http://localhost:8083/healthz"]
 
   order-status:
     <<: *service-base
@@ -255,9 +240,6 @@ services:
       SERVICE_NAME: order-status
       PORT: 8084
       INVENTORY_SERVICE_URL: http://inventory:8083
-    healthcheck:
-      <<: *node-healthcheck
-      test: ["CMD", "curl", "-fsS", "http://localhost:8084/healthz"]
 
   payment:
     <<: *service-base
@@ -273,9 +255,6 @@ services:
       # The mock provider approves payments without charging anyone, so the
       # service refuses to start in production unless this is set.
       ALLOW_MOCK_PAYMENTS_IN_PRODUCTION: ${ALLOW_MOCK_PAYMENTS_IN_PRODUCTION:-false}
-    healthcheck:
-      <<: *node-healthcheck
-      test: ["CMD", "curl", "-fsS", "http://localhost:8085/healthz"]
 
   place-order:
     <<: *service-base
@@ -295,9 +274,6 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
-    healthcheck:
-      <<: *node-healthcheck
-      test: ["CMD", "curl", "-fsS", "http://localhost:8086/healthz"]
 
   product-review:
     <<: *service-base
@@ -309,9 +285,6 @@ services:
       SERVICE_NAME: product-review
       PORT: 8087
       REQUIRE_VERIFIED_PURCHASE: ${REQUIRE_VERIFIED_PURCHASE:-false}
-    healthcheck:
-      <<: *node-healthcheck
-      test: ["CMD", "curl", "-fsS", "http://localhost:8087/healthz"]
 
   recommendation:
     <<: *service-base
@@ -322,9 +295,6 @@ services:
       <<: *service-env
       SERVICE_NAME: recommendation
       PORT: 8088
-    healthcheck:
-      <<: *node-healthcheck
-      test: ["CMD", "curl", "-fsS", "http://localhost:8088/healthz"]
 
   recommendation-generation:
     <<: *service-base
@@ -337,9 +307,6 @@ services:
       PORT: 8089
       RUN_ON_SCHEDULE: ${RECO_RUN_ON_SCHEDULE:-true}
       RUN_ON_BOOT: ${RECO_RUN_ON_BOOT:-false}
-    healthcheck:
-      <<: *node-healthcheck
-      test: ["CMD", "curl", "-fsS", "http://localhost:8089/healthz"]
 
   search:
     <<: *service-base
@@ -356,9 +323,6 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       elasticsearch: { condition: service_healthy }
-    healthcheck:
-      <<: *node-healthcheck
-      test: ["CMD", "curl", "-fsS", "http://localhost:8090/healthz"]
 
   shipping:
     <<: *service-base
@@ -369,9 +333,6 @@ services:
       <<: *service-env
       SERVICE_NAME: shipping
       PORT: 8091
-    healthcheck:
-      <<: *node-healthcheck
-      test: ["CMD", "curl", "-fsS", "http://localhost:8091/healthz"]
 
   # ------------------------------------------------------------------
   # Storefront
