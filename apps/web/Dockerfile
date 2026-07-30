@@ -43,6 +43,10 @@ FROM nginx:1.27-alpine AS production
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
-  CMD wget -qO- http://localhost/ >/dev/null || exit 1
+# 127.0.0.1, not localhost: nginx here binds IPv4 only (`listen 80`), while
+# `localhost` in this image can resolve to ::1 first — nothing is listening
+# there, so the probe fails against a perfectly healthy server. The service
+# images already use 127.0.0.1 for the same reason.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1/ || exit 1
 CMD ["nginx", "-g", "daemon off;"]

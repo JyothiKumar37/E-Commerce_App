@@ -164,6 +164,14 @@ async function checkDockerfiles(workspaces) {
       }
     }
 
+    // Applies to every image including the storefront, which is where this bit:
+    // a probe must target 127.0.0.1. `localhost` can resolve to ::1 first, and
+    // nothing here listens on IPv6, so the container reports unhealthy while
+    // serving traffic perfectly.
+    if (/HEALTHCHECK[\s\S]{0,300}?localhost/.test(instructions)) {
+      fail(`${dockerfile}: healthcheck targets localhost; use 127.0.0.1 (nothing listens on ::1)`);
+    }
+
     // The storefront ships behind nginx and shares none of the Node runtime.
     if (path === "apps/web") continue;
 
@@ -192,6 +200,15 @@ async function checkDockerfiles(workspaces) {
       if (/HEALTHCHECK[\s\S]{0,300}?curl/.test(instructions)) {
         fail(`${dockerfile}: healthcheck uses curl, which is not in the image — use node -e fetch`);
       }
+    }
+
+    // A probe must target 127.0.0.1. `localhost` can resolve to ::1 first, and
+    // nothing in these images listens on IPv6, so the container reports
+    // unhealthy while serving traffic correctly.
+    if (/HEALTHCHECK[\s\S]{0,300}?localhost/.test(instructions)) {
+      fail(
+        `${dockerfile}: healthcheck targets localhost; use 127.0.0.1 (IPv6 ::1 has no listener)`,
+      );
     }
   }
 
