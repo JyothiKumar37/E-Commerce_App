@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert -f docker-compose.yml
+    kompose.version: 1.38.0 (a8f5d1cbd)
+  labels:
+    io.kompose.service: api-gateway
+  name: api-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: api-gateway
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert -f docker-compose.yml
+        kompose.version: 1.38.0 (a8f5d1cbd)
+      labels:
+        io.kompose.service: api-gateway
+    spec:
+      containers:
+        - env:
+            - name: ACCESS_TOKEN_TTL
+              value: 15m
+            - name: ACCOUNT_SERVICE_URL
+              value: http://account:8081
+            - name: ALLOW_INSECURE_DB_CONNECTION
+              value: "true"
+            - name: CART_SERVICE_URL
+              value: http://cart:8082
+            - name: COOKIE_PATH
+              value: /api/auth
+            - name: COOKIE_SAMESITE
+              value: lax
+            - name: COOKIE_SECURE
+              value: "false"
+            - name: CORS_ORIGINS
+              value: http://13.233.175.73
+            - name: DATABASE_URL
+              value: postgres://ecom:E04xSRuM5msjYs1yUMjtOMhwmlk0UG@postgres:5432/ecom
+            - name: INTERNAL_JWT_SECRET
+              value: zzPOUoFGQ2UCgdG/UBBuaNBkGDqBXAHP7vQkC20uGSPBzmMthJS5Gy4XT0dMdsAx
+            - name: INVENTORY_SERVICE_URL
+              value: http://inventory:8083
+            - name: JWT_SECRET
+              value: viLZ7PrdNQzqXfuWV7SgTjGo56LhI2hg1ukzA7tOmB9d2fLBe/XQOiC15xQ4Umpt
+            - name: LOG_LEVEL
+              value: info
+            - name: NODE_ENV
+              value: production
+            - name: ORDER_STATUS_SERVICE_URL
+              value: http://order-status:8084
+            - name: PAYMENT_SERVICE_URL
+              value: http://payment:8085
+            - name: PGSSLMODE
+              value: disable
+            - name: PLACE_ORDER_SERVICE_URL
+              value: http://place-order:8086
+            - name: PORT
+              value: "8080"
+            - name: PRODUCT_REVIEW_SERVICE_URL
+              value: http://product-review:8087
+            - name: RECOMMENDATION_GENERATION_SERVICE_URL
+              value: http://recommendation-generation:8089
+            - name: RECOMMENDATION_SERVICE_URL
+              value: http://recommendation:8088
+            - name: REDIS_URL
+              value: redis://redis:6379
+            - name: REFRESH_TOKEN_TTL_DAYS
+              value: "30"
+            - name: SEARCH_SERVICE_URL
+              value: http://search:8090
+            - name: SERVICE_NAME
+              value: api-gateway
+            - name: SHIPPING_SERVICE_URL
+              value: http://shipping:8091
+          image: api-gateway
+          name: api-gateway
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+      restartPolicy: Always

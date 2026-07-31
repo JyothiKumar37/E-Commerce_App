@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert -f docker-compose.yml
+    kompose.version: 1.38.0 (a8f5d1cbd)
+  labels:
+    io.kompose.service: web
+  name: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: web
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert -f docker-compose.yml
+        kompose.version: 1.38.0 (a8f5d1cbd)
+      labels:
+        io.kompose.service: web
+    spec:
+      containers:
+        - env:
+            - name: VITE_API_URL
+              value: http://13.233.175.73/api
+          image: web
+          name: web
+          ports:
+            - containerPort: 80
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /app/apps/web/src
+              name: web-cm0
+              readOnly: true
+            - mountPath: /app/apps/web/index.html
+              name: web-cm1
+              readOnly: true
+              subPath: index.html
+      restartPolicy: Always
+      volumes:
+        - configMap:
+            name: web-cm0
+          name: web-cm0
+        - configMap:
+            items:
+              - key: index.html
+                path: index.html
+            name: web-cm1
+          name: web-cm1
