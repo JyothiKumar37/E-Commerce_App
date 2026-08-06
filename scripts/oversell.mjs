@@ -198,5 +198,28 @@ check(
   "duplicate order ids",
 );
 
+// --- put the stock back ----------------------------------------------------
+//
+// This test deliberately sells a product down to zero, and used to leave it
+// there. The e2e suite then picked that same product as its first in-stock item
+// and failed eighteen assertions in a cascade from one 409 — a broken run that
+// said nothing about the application.
+//
+// A harness that mutates seeded data has to restore it, or the suites can only
+// ever be run in one order, and only once.
+const restored = await call("POST", `/inventory/stock/${product.productId}/adjust`, {
+  token: adminToken,
+  body: {
+    delta: current.data.stock.available - final.data.stock.available,
+    reason: "race test teardown",
+  },
+});
+if (restored.status === 200) {
+  const back = await call("GET", `/inventory/stock/${product.productId}`);
+  console.log(`  stock restored to ${back.data.stock.available}`);
+} else {
+  console.log(`  WARNING: could not restore stock (${restored.status}). Re-run the seed job.`);
+}
+
 console.log(`\n  ${failed === 0 ? "No overselling." : `${failed} problem(s).`}\n`);
 process.exit(failed === 0 ? 0 : 1);

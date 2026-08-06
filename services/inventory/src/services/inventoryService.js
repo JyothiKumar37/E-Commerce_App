@@ -39,6 +39,28 @@ export async function getStock(productIds) {
  * Moves stock from `available` to `reserved` and records a reservation that
  * expires. Returns the reservation id, which checkout later commits or releases.
  */
+/**
+ * Queues a product for re-indexing, in the caller's transaction.
+ *
+ * The search document carries `inStock`, derived from `inventory.available`, so
+ * every write that moves `available` has to say so or the index goes stale.
+ * Only `adjustStock` and `restock` used to do this — the admin paths. The two
+ * that run on the customer path, `reserve` and `release`, did not.
+ *
+ * The effect was that buying the last unit of a product left it advertised as
+ * in stock for ever: search kept returning it, the storefront kept offering it,
+ * and the shopper only discovered otherwise when the cart answered 409. Nothing
+ * corrected it short of an admin stock adjustment or an order cancellation.
+ *
+ * It must share the caller's transaction. Enqueuing outside it would let the
+ * indexer read a stock level that the surrounding transaction then rolls back.
+ */
+function enqueueReindex(client, productId) {
+  return client.query("INSERT INTO catalog_outbox (product_id, operation) VALUES ($1, 'upsert')", [
+    productId,
+  ]);
+}
+
 export async function reserve({
   userId,
   orderId,
@@ -117,6 +139,7 @@ export async function reserve({
          VALUES ($1, $2, 'reserve', $3)`,
         [item.productId, -item.quantity, reservation.reservation_id],
       );
+      await enqueueReindex(client, item.productId);
     }
 
     logger.info(
@@ -235,6 +258,7 @@ export async function release({ reservationId, reason = "released" }) {
          VALUES ($1, $2, $3, $4)`,
         [item.product_id, item.quantity, reason, reservationId],
       );
+      await enqueueReindex(client, item.product_id);
     }
 
     await client.query(`UPDATE inventory_reservations SET status = $2 WHERE reservation_id = $1`, [
