@@ -1,27 +1,74 @@
+# The single entry point for API traffic and the only service the Ingress
+# forwards to. It authenticates the caller against JWT_SECRET, then mints a
+# short-lived token signed with INTERNAL_JWT_SECRET for each hop onwards, so a
+# stolen browser token cannot be replayed directly against a backend.
+#
+# Its routes are mounted at the root — /catalog/search, not /api/catalog/search
+# — which is why the API Ingress rewrites the prefix away before forwarding.
+# COOKIE_PATH must describe what the BROWSER sees (/api/auth), not what this
+# service serves; a mismatch silently ends every session at the access-token TTL.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    kompose.cmd: kompose convert -f docker-compose.yml
-    kompose.version: 1.38.0 (a8f5d1cbd)
-  labels:
-    io.kompose.service: api-gateway
   name: api-gateway
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
+  # maxUnavailable 0 keeps a replica serving for the whole rollout; readiness
+  # gating means the new pod only takes traffic once /readyz says its
+  # dependencies are reachable.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
-      io.kompose.service: api-gateway
+      app.kubernetes.io/name: api-gateway
+      app.kubernetes.io/part-of: ecom
   template:
     metadata:
-      annotations:
-        kompose.cmd: kompose convert -f docker-compose.yml
-        kompose.version: 1.38.0 (a8f5d1cbd)
       labels:
-        io.kompose.service: api-gateway
+        app.kubernetes.io/name: api-gateway
+        app.kubernetes.io/component: gateway
+        app.kubernetes.io/part-of: ecom
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: kubectl
     spec:
+      # Nothing here calls the Kubernetes API, so mounting a token would only
+      # hand an attacker a credential on a successful RCE.
+      automountServiceAccountToken: false
+      # The shared server drains in-flight requests and closes its pools on
+      # SIGTERM. Thirty seconds is ample and stops a slow checkout being cut off.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        # Matches USER node in the image.
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
-        - env:
+        - name: api-gateway
+          image: ecom/api-gateway:local
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
             - name: ACCESS_TOKEN_TTL
               value: 15m
             - name: ACCOUNT_SERVICE_URL
@@ -31,7 +78,7 @@ spec:
             - name: CART_SERVICE_URL
               value: http://cart:8082
             - name: COOKIE_PATH
-              value: /api/auth
+              value: "/api/auth"
             - name: COOKIE_SAMESITE
               value: lax
             - name: COOKIE_SECURE
@@ -39,13 +86,22 @@ spec:
             - name: CORS_ORIGINS
               value: http://13.233.175.73
             - name: DATABASE_URL
-              value: postgres://ecom:E04xSRuM5msjYs1yUMjtOMhwmlk0UG@postgres:5432/ecom
+              valueFrom:
+                secretKeyRef:
+                  name: ecom-secrets
+                  key: DATABASE_URL
             - name: INTERNAL_JWT_SECRET
-              value: zzPOUoFGQ2UCgdG/UBBuaNBkGDqBXAHP7vQkC20uGSPBzmMthJS5Gy4XT0dMdsAx
+              valueFrom:
+                secretKeyRef:
+                  name: ecom-secrets
+                  key: INTERNAL_JWT_SECRET
             - name: INVENTORY_SERVICE_URL
               value: http://inventory:8083
             - name: JWT_SECRET
-              value: viLZ7PrdNQzqXfuWV7SgTjGo56LhI2hg1ukzA7tOmB9d2fLBe/XQOiC15xQ4Umpt
+              valueFrom:
+                secretKeyRef:
+                  name: ecom-secrets
+                  key: JWT_SECRET
             - name: LOG_LEVEL
               value: info
             - name: NODE_ENV
@@ -76,9 +132,39 @@ spec:
               value: api-gateway
             - name: SHIPPING_SERVICE_URL
               value: http://shipping:8091
-          image: api-gateway
-          name: api-gateway
-          ports:
-            - containerPort: 8080
-              protocol: TCP
-      restartPolicy: Always
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          # Readiness and liveness are deliberately different endpoints.
+          # /readyz checks Postgres and Redis, so a failing dependency removes
+          # this pod from the Service; /healthz only asks whether the process is
+          # alive. Restarting a pod because its database blinked would turn a
+          # brief outage into a crash loop across every service at once.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            # readOnlyRootFilesystem above leaves nowhere to write; Node wants a
+            # scratch directory even though this code does not use one.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,54 +1,98 @@
+# Cart state, rate-limit counters and the idempotency claims that stop a
+# double-submitted checkout charging twice.
+#
+# maxmemory with an allkeys-lru policy means Redis evicts rather than refusing
+# writes when full. Carts are recoverable; a checkout that fails because the
+# cache is full is not an acceptable trade.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    kompose.cmd: kompose convert -f docker-compose.yml
-    kompose.version: 1.38.0 (a8f5d1cbd)
-  labels:
-    io.kompose.service: redis
   name: redis
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
 spec:
   replicas: 1
-  selector:
-    matchLabels:
-      io.kompose.service: redis
+  revisionHistoryLimit: 3
   strategy:
     type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/part-of: ecom
   template:
     metadata:
-      annotations:
-        kompose.cmd: kompose convert -f docker-compose.yml
-        kompose.version: 1.38.0 (a8f5d1cbd)
       labels:
-        io.kompose.service: redis
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/component: cache
+        app.kubernetes.io/part-of: ecom
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: kubectl
     spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        # redis:7.2-alpine runs as uid 999, in group 1000.
+        runAsUser: 999
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
-        - args:
+        - name: redis
+          image: redis:7.2-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Redis only ever writes to /data, which is the volume below.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          args:
             - redis-server
+            # appendonly, so a restart does not empty every basket in the shop.
             - --appendonly
             - "yes"
             - --maxmemory
             - 256mb
             - --maxmemory-policy
             - allkeys-lru
-          image: redis:7.2-alpine
-          livenessProbe:
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              # Above the 256mb maxmemory above: Redis accounts its own dataset,
+              # not the allocator overhead and copy-on-write pages a rewrite of
+              # the append-only file needs.
+              memory: 320Mi
+          readinessProbe:
             exec:
-              command:
-                - redis-cli
-                - ping
-            failureThreshold: 10
+              command: [redis-cli, ping]
             periodSeconds: 5
             timeoutSeconds: 3
-          name: redis
-          ports:
-            - containerPort: 6379
-              protocol: TCP
+            failureThreshold: 10
+          livenessProbe:
+            exec:
+              command: [redis-cli, ping]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
           volumeMounts:
-            - mountPath: /data
-              name: redis-data
-      restartPolicy: Always
+            - name: data
+              mountPath: /data
       volumes:
-        - name: redis-data
+        - name: data
           persistentVolumeClaim:
             claimName: redis-data

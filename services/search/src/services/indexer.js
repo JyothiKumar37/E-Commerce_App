@@ -122,8 +122,13 @@ function markProcessed(client, outboxIds) {
   );
 }
 
-/** Full rebuild, used on first boot and exposed as an admin endpoint. */
-export async function reindexAll({ batchSize = 500 } = {}) {
+/**
+ * Full rebuild, used on first boot and exposed as an admin endpoint.
+ *
+ * `index` defaults to the alias but is overridable, because a mapping upgrade
+ * has to populate the new concrete index *before* the alias moves onto it.
+ */
+export async function reindexAll({ batchSize = 500, index = INDEX } = {}) {
   let cursor = null;
   let total = 0;
 
@@ -142,7 +147,7 @@ export async function reindexAll({ batchSize = 500 } = {}) {
 
     const operations = rows.flatMap((row) => {
       const doc = toSearchDocument(row);
-      return [{ index: { _index: INDEX, _id: doc.productId } }, doc];
+      return [{ index: { _index: index, _id: doc.productId } }, doc];
     });
 
     const response = await elasticClient.bulk({ refresh: false, operations });
@@ -155,8 +160,11 @@ export async function reindexAll({ batchSize = 500 } = {}) {
     cursor = rows[rows.length - 1].product_id;
   }
 
-  await elasticClient.indices.refresh({ index: INDEX });
-  logger.info({ total }, "reindex complete");
+  // Without this the caller can swap an alias onto an index whose documents are
+  // written but not yet searchable, and the first queries after a rebuild
+  // return nothing.
+  await elasticClient.indices.refresh({ index });
+  logger.info({ total, index }, "reindex complete");
   return { indexed: total };
 }
 

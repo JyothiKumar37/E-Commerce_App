@@ -2,6 +2,7 @@ import { asyncHandler, paginated } from "@ecom/shared";
 import { pool } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
 import { INDEX, elasticClient } from "../lib/elastic.js";
+import { asArray, buildQuery, buildSort } from "../lib/query.js";
 
 /**
  * Product search.
@@ -31,45 +32,7 @@ export const search = asyncHandler(async (req, res) => {
 
   const from = (page - 1) * pageSize;
 
-  const filters = [{ term: { isActive: true } }];
-  if (category) filters.push({ terms: { category: asArray(category) } });
-  if (brand) filters.push({ terms: { brand: asArray(brand) } });
-  if (inStock === true) filters.push({ term: { inStock: true } });
-  if (minRating != null) filters.push({ range: { ratingAvg: { gte: minRating } } });
-  if (minPrice != null || maxPrice != null) {
-    filters.push({
-      range: {
-        priceCents: {
-          ...(minPrice != null ? { gte: Math.round(minPrice * 100) } : {}),
-          ...(maxPrice != null ? { lte: Math.round(maxPrice * 100) } : {}),
-        },
-      },
-    });
-  }
-
-  const query = q.trim()
-    ? {
-        bool: {
-          must: [
-            {
-              multi_match: {
-                query: q,
-                fields: ["name^4", "brand^2", "category^2", "description"],
-                fuzziness: "AUTO",
-                prefix_length: 2,
-                operator: "and",
-              },
-            },
-          ],
-          // Boost well-reviewed and in-stock items without excluding others.
-          should: [
-            { term: { inStock: { value: true, boost: 1.5 } } },
-            { range: { ratingAvg: { gte: 4, boost: 1.2 } } },
-          ],
-          filter: filters,
-        },
-      }
-    : { bool: { filter: filters } };
+  const query = buildQuery({ q, category, brand, minPrice, maxPrice, inStock, minRating });
 
   try {
     const response = await elasticClient.search({
@@ -107,8 +70,25 @@ export const search = asyncHandler(async (req, res) => {
     });
   } catch (err) {
     // Search being down must not take the storefront down with it.
+    //
+    // The Elasticsearch client puts the useful part of a failure in
+    // `meta.body.error` — the type, the reason and, for a query-shape mistake,
+    // the offending clause. Logging only `err.message` reduced all of that to
+    // "search_phase_execution_exception", which says a query failed but not
+    // which one or why, and turned every index or mapping problem into a silent
+    // downgrade to the SQL path.
+    const cause = err?.meta?.body?.error;
     logger.error(
-      { err: { message: err.message } },
+      {
+        err: {
+          message: err.message,
+          status: err?.meta?.statusCode,
+          type: cause?.type,
+          reason: cause?.reason,
+          causedBy: cause?.caused_by?.reason,
+          failedShards: cause?.failed_shards?.slice(0, 2),
+        },
+      },
       "elasticsearch query failed; using SQL fallback",
     );
     const fallback = await searchViaPostgres({
@@ -159,26 +139,7 @@ export const suggest = asyncHandler(async (req, res) => {
   }
 });
 
-function buildSort(sort, q) {
-  switch (sort) {
-    case "price_asc":
-      return [{ priceCents: "asc" }];
-    case "price_desc":
-      return [{ priceCents: "desc" }];
-    case "rating":
-      return [{ ratingAvg: "desc" }, { ratingCount: "desc" }];
-    case "newest":
-      return [{ createdAt: "desc" }];
-    default:
-      // With no query text there is no relevance signal, so fall back to
-      // something stable rather than returning results in Lucene doc order.
-      return q.trim() ? ["_score", { ratingCount: "desc" }] : [{ createdAt: "desc" }];
-  }
-}
-
 const bucketsOf = (agg) => (agg?.buckets ?? []).map((b) => ({ value: b.key, count: b.doc_count }));
-
-const asArray = (value) => (Array.isArray(value) ? value : [value]);
 
 /**
  * Degraded search path: trigram similarity on name plus a plain ILIKE on the

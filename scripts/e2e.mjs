@@ -109,6 +109,117 @@ let products = [];
   );
 }
 
+// ---------------------------------------------------------------------------
+// Free text. Everything above sends `q: ""`, which skips the text branch of the
+// query entirely — so this suite passed 78 assertions against a storefront on
+// which typing a product name returned nothing at all. A search endpoint that
+// answers 200 with zero results looks identical to an empty catalogue: no
+// status code, health check or probe can tell them apart. Only an assertion on
+// the *content* can.
+console.log("\n── Free-text search ──────────────────────────────────");
+{
+  const target = products.find((p) => p.name.includes("Court Low Leather Sneaker")) ?? products[0];
+
+  const exact = await call("POST", "/catalog/search", {
+    auth: false,
+    body: { q: target.name, pageSize: 10 },
+  });
+  expect(
+    "an exact product name finds that product",
+    exact.status === 200 && exact.data?.items?.some((p) => p.productId === target.productId),
+    `status ${exact.status}, ${exact.data?.items?.length ?? 0} hits for "${target.name}"`,
+  );
+  expect(
+    "and ranks it first",
+    exact.data?.items?.[0]?.productId === target.productId,
+    `top hit was "${exact.data?.items?.[0]?.name}"`,
+  );
+
+  const oneWord = await call("POST", "/catalog/search", {
+    auth: false,
+    body: { q: target.name.split(" ").pop(), pageSize: 10 },
+  });
+  expect(
+    "a single word from the name finds it",
+    oneWord.data?.items?.some((p) => p.productId === target.productId),
+    `${oneWord.data?.items?.length ?? 0} hits for "${target.name.split(" ").pop()}"`,
+  );
+
+  // Brand and product word together. This is the case `operator: "and"` over
+  // best_fields could never satisfy: the two terms live in different fields.
+  if (target.brand) {
+    const crossField = await call("POST", "/catalog/search", {
+      auth: false,
+      body: { q: `${target.brand} ${target.name.split(" ").pop()}`, pageSize: 10 },
+    });
+    expect(
+      "brand plus product word matches across fields",
+      crossField.data?.items?.some((p) => p.productId === target.productId),
+      `${crossField.data?.items?.length ?? 0} hits for "${target.brand} ..."`,
+    );
+  }
+
+  // Lowercase brand against a capitalised stored value.
+  const lowerBrand = await call("POST", "/catalog/search", {
+    auth: false,
+    body: { q: (target.brand ?? target.category).toLowerCase(), pageSize: 20 },
+  });
+  expect(
+    "search is case-insensitive",
+    (lowerBrand.data?.items?.length ?? 0) > 0,
+    `0 hits for "${(target.brand ?? target.category).toLowerCase()}"`,
+  );
+
+  // A typo still lands, via the fuzzy strategy.
+  const typo = target.name.split(" ").pop().replace(/.$/, "");
+  const fuzzy = await call("POST", "/catalog/search", {
+    auth: false,
+    body: { q: typo, pageSize: 10 },
+  });
+  expect(
+    "a truncated word still matches",
+    (fuzzy.data?.items?.length ?? 0) > 0,
+    `0 hits for "${typo}"`,
+  );
+
+  // Nonsense must return nothing — otherwise the assertions above prove only
+  // that search returns *something* regardless of the query.
+  const nonsense = await call("POST", "/catalog/search", {
+    auth: false,
+    body: { q: "zzqxwvunlikelyterm", pageSize: 10 },
+  });
+  expect(
+    "a term in no product returns nothing",
+    nonsense.status === 200 && nonsense.data?.items?.length === 0,
+    `status ${nonsense.status}, ${nonsense.data?.items?.length} hits`,
+  );
+
+  // Facets must describe the matched set, not the whole catalogue.
+  const faceted = await call("POST", "/catalog/search", {
+    auth: false,
+    body: { q: "", category: target.category, pageSize: 50 },
+  });
+  expect(
+    "a category filter narrows the results",
+    faceted.data?.items?.length > 0 &&
+      faceted.data.items.every((p) => p.category === target.category),
+    `${faceted.data?.items?.length} hits, categories ${[
+      ...new Set((faceted.data?.items ?? []).map((p) => p.category)),
+    ].join(", ")}`,
+  );
+
+  const lowerCat = await call("POST", "/catalog/search", {
+    auth: false,
+    body: { q: "", category: target.category.toLowerCase(), pageSize: 50 },
+  });
+  expect(
+    "a category filter ignores case",
+    lowerCat.data?.items?.length === faceted.data?.items?.length,
+    `"${target.category}" gave ${faceted.data?.items?.length}, ` +
+      `"${target.category.toLowerCase()}" gave ${lowerCat.data?.items?.length}`,
+  );
+}
+
 const inStock = products.filter((p) => p.inStock);
 const soldOut = products.find((p) => !p.inStock);
 const lowStock = products.find((p) => p.name.includes("Arc LED"));

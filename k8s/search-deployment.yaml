@@ -1,41 +1,97 @@
+# Catalogue search, plus the worker that keeps the index current.
+#
+# Catalogue writes commit a row to catalog_outbox in the same transaction as the
+# product change; this service drains that outbox into Elasticsearch every
+# INDEXER_INTERVAL_MS. The index is versioned and reached through an alias, so a
+# mapping change rebuilds into a new index and swaps the alias atomically.
+#
+# If Elasticsearch is unreachable, search falls back to a Postgres query and
+# reports degraded rather than failing, which is why this stays Ready even when
+# the cluster is not.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    kompose.cmd: kompose convert -f docker-compose.yml
-    kompose.version: 1.38.0 (a8f5d1cbd)
-  labels:
-    io.kompose.service: search
   name: search
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: search
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
+  # maxUnavailable 0 keeps a replica serving for the whole rollout; readiness
+  # gating means the new pod only takes traffic once /readyz says its
+  # dependencies are reachable.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
-      io.kompose.service: search
+      app.kubernetes.io/name: search
+      app.kubernetes.io/part-of: ecom
   template:
     metadata:
-      annotations:
-        kompose.cmd: kompose convert -f docker-compose.yml
-        kompose.version: 1.38.0 (a8f5d1cbd)
       labels:
-        io.kompose.service: search
+        app.kubernetes.io/name: search
+        app.kubernetes.io/component: backend
+        app.kubernetes.io/part-of: ecom
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: kubectl
     spec:
+      # Nothing here calls the Kubernetes API, so mounting a token would only
+      # hand an attacker a credential on a successful RCE.
+      automountServiceAccountToken: false
+      # The shared server drains in-flight requests and closes its pools on
+      # SIGTERM. Thirty seconds is ample and stops a slow checkout being cut off.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        # Matches USER node in the image.
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
-        - env:
+        - name: search
+          image: ecom/search:local
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: http
+              containerPort: 8090
+              protocol: TCP
+          env:
             - name: ALLOW_INSECURE_DB_CONNECTION
               value: "true"
             - name: CORS_ORIGINS
               value: http://13.233.175.73
             - name: DATABASE_URL
-              value: postgres://ecom:E04xSRuM5msjYs1yUMjtOMhwmlk0UG@postgres:5432/ecom
+              valueFrom:
+                secretKeyRef:
+                  name: ecom-secrets
+                  key: DATABASE_URL
             - name: ELASTICSEARCH_INDEX
               value: products
+            - name: ELASTICSEARCH_REPLICAS
+              value: "0"
             - name: ELASTICSEARCH_URL
               value: http://elasticsearch:9200
             - name: INDEXER_INTERVAL_MS
               value: "5000"
             - name: INTERNAL_JWT_SECRET
-              value: zzPOUoFGQ2UCgdG/UBBuaNBkGDqBXAHP7vQkC20uGSPBzmMthJS5Gy4XT0dMdsAx
+              valueFrom:
+                secretKeyRef:
+                  name: ecom-secrets
+                  key: INTERNAL_JWT_SECRET
             - name: LOG_LEVEL
               value: info
             - name: NODE_ENV
@@ -48,6 +104,39 @@ spec:
               value: redis://redis:6379
             - name: SERVICE_NAME
               value: search
-          image: search
-          name: search
-      restartPolicy: Always
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          # Readiness and liveness are deliberately different endpoints.
+          # /readyz checks Postgres and Redis, so a failing dependency removes
+          # this pod from the Service; /healthz only asks whether the process is
+          # alive. Restarting a pod because its database blinked would turn a
+          # brief outage into a crash loop across every service at once.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            # readOnlyRootFilesystem above leaves nowhere to write; Node wants a
+            # scratch directory even though this code does not use one.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,19 @@
+# Everything lives in its own namespace, so the whole stack can be listed,
+# secured and torn down as one unit:
+#
+#   kubectl get all -n ecom
+#   kubectl delete namespace ecom
+#
+# The numeric prefix is only to make this sort first under `kubectl apply -f k8s/`,
+# which applies files alphabetically. Every other object here names the namespace
+# explicitly rather than relying on a kubectl context.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ecom
+  labels:
+    app.kubernetes.io/name: ecom
+    app.kubernetes.io/component: namespace
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl

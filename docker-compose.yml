@@ -217,6 +217,7 @@ services:
       PORT: 8082
       SEARCH_SERVICE_URL: http://search:8090
     depends_on:
+      postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
 
   inventory:
@@ -319,6 +320,10 @@ services:
       PORT: 8090
       ELASTICSEARCH_URL: http://elasticsearch:9200
       ELASTICSEARCH_INDEX: products
+      # Zero, because this is a single-node cluster. A replica has no second
+      # node to live on, so the shard stays unassigned and the cluster reports
+      # yellow for ever.
+      ELASTICSEARCH_REPLICAS: ${ELASTICSEARCH_REPLICAS:-0}
       INDEXER_INTERVAL_MS: ${INDEXER_INTERVAL_MS:-5000}
     depends_on:
       postgres: { condition: service_healthy }

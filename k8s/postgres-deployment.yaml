@@ -1,54 +1,120 @@
+# The system of record. Every service reads and writes here; Elasticsearch and
+# Redis are both derived state that can be rebuilt from this.
+#
+# A single-replica Deployment with a ReadWriteOnce claim is honest for a
+# self-hosted cluster, but it is not high availability: the pod and its data are
+# pinned to one node, and a node failure is an outage. Anything with real
+# customers belongs on a managed service (RDS, Cloud SQL) or an operator that
+# understands replication and backups. Nothing here takes a backup.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    kompose.cmd: kompose convert -f docker-compose.yml
-    kompose.version: 1.38.0 (a8f5d1cbd)
-  labels:
-    io.kompose.service: postgres
   name: postgres
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
 spec:
   replicas: 1
-  selector:
-    matchLabels:
-      io.kompose.service: postgres
+  revisionHistoryLimit: 3
+  # Recreate, not RollingUpdate: a second pod could not attach the same
+  # ReadWriteOnce volume, so a rolling update would deadlock with the new pod
+  # Pending and the old one never released.
   strategy:
     type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+      app.kubernetes.io/part-of: ecom
   template:
     metadata:
-      annotations:
-        kompose.cmd: kompose convert -f docker-compose.yml
-        kompose.version: 1.38.0 (a8f5d1cbd)
       labels:
-        io.kompose.service: postgres
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: ecom
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: kubectl
     spec:
+      automountServiceAccountToken: false
+      # Postgres flushes and closes cleanly on SIGTERM; cutting it short risks
+      # recovery work on the next start.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        # postgres:16.3-alpine creates its postgres user as uid/gid 70. The
+        # Debian-based image uses 999, and running the Alpine one as 999 leaves
+        # initdb unable to own PGDATA — the pod crash-loops on "could not change
+        # permissions of directory".
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
       containers:
-        - env:
+        - name: postgres
+          image: postgres:16.3-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            # readOnlyRootFilesystem is deliberately not set. The entrypoint
+            # writes a socket to /var/run/postgresql and scratch files under
+            # /tmp during initdb; pinning those to emptyDirs is possible but
+            # brittle across image versions, and the gain over dropping every
+            # capability is small.
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
             - name: POSTGRES_DB
               value: ecom
-            - name: POSTGRES_INITDB_ARGS
-              value: --locale-provider=icu --icu-locale=en-US
-            - name: POSTGRES_PASSWORD
-              value: E04xSRuM5msjYs1yUMjtOMhwmlk0UG
             - name: POSTGRES_USER
               value: ecom
-          image: postgres:16.3-alpine
-          livenessProbe:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ecom-secrets
+                  key: POSTGRES_PASSWORD
+            # Deterministic collation, so index ordering matches across machines.
+            - name: POSTGRES_INITDB_ARGS
+              value: "--locale-provider=icu --icu-locale=en-US"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          readinessProbe:
             exec:
-              command:
-                - pg_isready -U ecom -d ecom
-            failureThreshold: 10
+              command: [pg_isready, -U, ecom, -d, ecom]
             periodSeconds: 5
             timeoutSeconds: 3
-          name: postgres
-          ports:
-            - containerPort: 5432
-              protocol: TCP
+            failureThreshold: 10
+          # initialDelaySeconds covers first-boot initdb, during which
+          # pg_isready fails. Without it the probe can kill the pod mid-initdb,
+          # then do it again on every restart.
+          livenessProbe:
+            exec:
+              command: [pg_isready, -U, ecom, -d, ecom]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
           volumeMounts:
-            - mountPath: /var/lib/postgresql/data
-              name: postgres-data
-      restartPolicy: Always
+            - name: data
+              mountPath: /var/lib/postgresql/data
+              # subPath puts PGDATA in a subdirectory of the volume rather than
+              # at its root. Most provisioners hand back an ext4 filesystem
+              # whose root already contains lost+found, and initdb refuses to
+              # run in a directory that is not empty.
+              subPath: pgdata
       volumes:
-        - name: postgres-data
+        - name: data
           persistentVolumeClaim:
             claimName: postgres-data

@@ -1,16 +1,23 @@
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    kompose.cmd: kompose convert -f docker-compose.yml
-    kompose.version: 1.38.0 (a8f5d1cbd)
-  labels:
-    io.kompose.service: postgres
   name: postgres
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
 spec:
+  # ClusterIP: reachable inside the namespace only. Nothing in this stack should
+  # be published directly — the Ingress is the single way in.
+  type: ClusterIP
   ports:
-    - name: "5432"
+    - name: postgres
       port: 5432
-      targetPort: 5432
+      targetPort: postgres
+      protocol: TCP
   selector:
-    io.kompose.service: postgres
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: ecom

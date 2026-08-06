@@ -1,12 +1,23 @@
+# Cart state and the appendonly file that survives a restart.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  labels:
-    io.kompose.service: redis-data
   name: redis-data
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: redis-data
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
 spec:
+  # ReadWriteOnce: one node mounts this at a time, which is why the workload
+  # using it deploys with the Recreate strategy rather than RollingUpdate.
   accessModes:
     - ReadWriteOnce
+  # `standard` is the default class on minikube, kind and most managed clusters.
+  # Name the cluster's own class here if it differs.
+  storageClassName: standard
   resources:
     requests:
-      storage: 100Mi
+      storage: 1Gi

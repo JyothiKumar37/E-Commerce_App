@@ -1,53 +1,112 @@
+# Search index. Derived state: the search service can rebuild every document
+# from Postgres, so losing this volume costs a reindex, not data.
+#
+# Security is disabled because this is only reachable inside the namespace.
+# Anything exposed beyond it needs xpack.security on, TLS, and an API key in
+# ELASTICSEARCH_API_KEY.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    kompose.cmd: kompose convert -f docker-compose.yml
-    kompose.version: 1.38.0 (a8f5d1cbd)
-  labels:
-    io.kompose.service: elasticsearch
   name: elasticsearch
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: elasticsearch
+    app.kubernetes.io/component: search-index
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
 spec:
   replicas: 1
-  selector:
-    matchLabels:
-      io.kompose.service: elasticsearch
+  revisionHistoryLimit: 3
   strategy:
     type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: elasticsearch
+      app.kubernetes.io/part-of: ecom
   template:
     metadata:
-      annotations:
-        kompose.cmd: kompose convert -f docker-compose.yml
-        kompose.version: 1.38.0 (a8f5d1cbd)
       labels:
-        io.kompose.service: elasticsearch
+        app.kubernetes.io/name: elasticsearch
+        app.kubernetes.io/component: search-index
+        app.kubernetes.io/part-of: ecom
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: kubectl
     spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 0
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
-        - env:
-            - name: ES_JAVA_OPTS
-              value: -Xms512m -Xmx512m
+        - name: elasticsearch
+          image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            # Not readOnlyRootFilesystem: the JVM writes logs and a temp
+            # directory inside the image, and the node also rewrites its own
+            # config on start.
+          env:
             - name: discovery.type
               value: single-node
             - name: xpack.security.enabled
               value: "false"
-          image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
-          livenessProbe:
+            - name: ES_JAVA_OPTS
+              value: "-Xms512m -Xmx512m"
+          ports:
+            - name: http
+              containerPort: 9200
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              # A 512m heap is not a 512m process. Metaspace, thread stacks and
+              # direct byte buffers put the real figure well above it, and a 1Gi
+              # limit gets the pod OOMKilled under indexing load.
+              memory: 1536Mi
+          # Elasticsearch needs 30-60s to become queryable on a small instance.
+          # A startup probe absorbs that without making the liveness probe carry
+          # an initialDelaySeconds it would then apply for the pod's whole life.
+          startupProbe:
+            httpGet:
+              path: /_cluster/health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
             exec:
               command:
-                - curl -fsS http://localhost:9200/_cluster/health | grep -qE '"status":"(green|yellow)"'
-            failureThreshold: 20
-            initialDelaySeconds: 40
+                - /bin/sh
+                - -c
+                - 'curl -fsS http://localhost:9200/_cluster/health | grep -qE ''"status":"(green|yellow)"'''
             periodSeconds: 10
             timeoutSeconds: 5
-          name: elasticsearch
-          ports:
-            - containerPort: 9200
-              protocol: TCP
+            failureThreshold: 3
+          # Liveness only asks whether the process still answers. Restarting a
+          # node because the cluster went red is the wrong response: it slows
+          # recovery, and a single-node cluster goes red exactly when a restart
+          # hurts most. Readiness above is what withholds traffic.
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
           volumeMounts:
-            - mountPath: /usr/share/elasticsearch/data
-              name: elastic-data
-      restartPolicy: Always
+            - name: data
+              mountPath: /usr/share/elasticsearch/data
       volumes:
-        - name: elastic-data
+        - name: data
           persistentVolumeClaim:
             claimName: elastic-data

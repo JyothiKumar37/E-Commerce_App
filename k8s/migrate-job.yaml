@@ -1,0 +1,103 @@
+# Schema migration. Run this before anything else:
+#
+#   kubectl apply -f k8s/migrate-job.yaml
+#   kubectl -n ecom wait --for=condition=complete job/ecom-migrate --timeout=300s
+#
+# Re-running is safe: migrate.js records each file in schema_migrations with a
+# checksum and skips whatever is already applied. To apply a NEW migration,
+# delete the finished Job first — a completed Job is immutable.
+#
+#   kubectl -n ecom delete job ecom-migrate --ignore-not-found
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ecom-migrate
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: ecom-migrate
+    app.kubernetes.io/component: migration
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  backoffLimit: 6
+  # Reap the finished Job after an hour, so the next deploy is not blocked by a
+  # leftover object. Needs the TTLAfterFinished controller, on by default since
+  # 1.23; older clusters simply ignore it.
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ecom-migrate
+        app.kubernetes.io/component: migration
+        app.kubernetes.io/part-of: ecom
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: kubectl
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Nothing orders a Job against a Deployment, so this waits rather than
+        # burning through backoffLimit while Postgres finishes initdb.
+        - name: wait-for-postgres
+          image: postgres:16.3-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until pg_isready -h postgres -p 5432 -U ecom -d ecom; do
+                echo "waiting for postgres..."
+                sleep 2
+              done
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+      containers:
+        - name: migrate
+          image: ecom/database:local
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          command: ["node", "packages/database/migrate.js", "up"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ecom-secrets
+                  key: DATABASE_URL
+            - name: PGSSLMODE
+              value: disable
+            # Postgres is reachable only inside the namespace, so the production
+            # TLS requirement is waived deliberately rather than by omission.
+            - name: ALLOW_INSECURE_DB_CONNECTION
+              value: "true"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

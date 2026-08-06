@@ -6,7 +6,9 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "test": "node --test test/",
+    "test:coverage": "node --test --experimental-test-coverage test/"
   },
   "dependencies": {
     "@ecom/shared": "1.0.0",

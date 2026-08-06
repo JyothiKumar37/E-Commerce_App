@@ -1,11 +1,11 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: web
+  name: product-review
   namespace: ecom
   labels:
-    app.kubernetes.io/name: web
-    app.kubernetes.io/component: storefront
+    app.kubernetes.io/name: product-review
+    app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: ecom
     app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/managed-by: kubectl
@@ -13,9 +13,10 @@ spec:
   type: ClusterIP
   ports:
     - name: http
-      port: 80
+      port: 8087
+      # Named, so the port only has to be correct in the Deployment.
       targetPort: http
       protocol: TCP
   selector:
-    app.kubernetes.io/name: web
+    app.kubernetes.io/name: product-review
     app.kubernetes.io/part-of: ecom

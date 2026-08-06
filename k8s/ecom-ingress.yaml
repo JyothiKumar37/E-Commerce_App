@@ -1,0 +1,95 @@
+# Two Ingress objects, not one.
+#
+# The gateway mounts its routes at the root: it serves /catalog/search, not
+# /api/catalog/search. Something has to strip the prefix, and nginx-ingress does
+# not do it for a plain `path: /api` — the request reaches the gateway still
+# carrying /api and every API call 404s.
+#
+# The stripping is done by rewrite-target, which applies to EVERY path in the
+# Ingress it is declared on. Putting the storefront rule in the same object
+# would rewrite `/` to an empty capture group and break the site, so the two
+# rules live in separate objects. nginx-ingress merges them into one server.
+#
+# Why not send /api to the storefront pod and let its own nginx.conf strip the
+# prefix, the way Compose does? That config resolves the gateway through
+# `resolver 127.0.0.11`, Docker's embedded DNS. It does not exist in Kubernetes,
+# so every proxied call would 502. Routing /api here bypasses that block.
+#
+# Both rules land on the same origin, which is what keeps the API same-origin:
+# no CORS preflights, and the refresh cookie stays first-party. The gateway's
+# COOKIE_PATH=/api/auth describes what the browser sees here, not the /auth it
+# serves internally.
+#
+# This is plain HTTP against an IP. Adding a hostname and TLS means setting
+# `host:` on both rules, adding a `tls:` block, and flipping COOKIE_SECURE to
+# true on the gateway — the refresh cookie should not cross the internet in
+# clear text.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ecom-api-ingress
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: ecom-api
+    app.kubernetes.io/component: edge
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    # $2 is the second capture group of the path below: everything after /api.
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # Checkout waits on the payment provider, so do not cut it short.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    # The API must never be browser-cached; one stale 200 replays on every load.
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+spec:
+  ingressClassName: nginx
+  rules:
+    # No host: matches any Host header, which is what a bare IP needs.
+    - http:
+        paths:
+          # (/|$)(.*) so /api, /api/ and /api/catalog/search all work:
+          #   /api/catalog/search -> $2 = catalog/search -> /catalog/search
+          #   /api                -> $2 = ""             -> /
+          # pathType must be ImplementationSpecific: ingress-nginx v1.9+ rejects
+          # regex characters in a Prefix path.
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ecom-web-ingress
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: ecom-web
+    app.kubernetes.io/component: edge
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          # Everything else is the storefront. nginx evaluates the regex
+          # location above ahead of this prefix match, so /api never lands here.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  name: http

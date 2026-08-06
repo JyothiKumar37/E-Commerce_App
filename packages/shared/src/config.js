@@ -115,6 +115,11 @@ export const elasticEnvSchema = {
   ELASTICSEARCH_PASSWORD: Joi.string().allow("").optional(),
   ELASTICSEARCH_CA_CERT: Joi.string().allow("").optional(),
   ELASTICSEARCH_INDEX: Joi.string().default("products"),
+  // Replica count for the product index. Zero is correct for a single-node
+  // cluster: a replica has nowhere to be allocated, so the shard sits
+  // unassigned and the cluster reports yellow for ever. Raise this only when
+  // there is more than one data node to place the copy on.
+  ELASTICSEARCH_REPLICAS: Joi.number().integer().min(0).max(5).default(0),
 };
 
 export { Joi };

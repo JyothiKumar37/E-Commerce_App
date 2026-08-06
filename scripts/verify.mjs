@@ -279,6 +279,74 @@ async function checkApiClient() {
   note("storefront API client preserves a base path prefix");
 }
 
+/**
+ * The end-to-end suite must actually type something into search.
+ *
+ * Every catalog assertion originally sent `q: ""`, which takes the filter-only
+ * branch and never builds a text query at all. So 78 assertions passed green
+ * against a storefront where searching for a product by name returned nothing —
+ * a search endpoint answering 200 with an empty page is indistinguishable from
+ * an empty catalogue unless something asserts on the contents.
+ */
+async function checkSearchCoverage() {
+  const file = "scripts/e2e.mjs";
+  if (!(await exists(file))) {
+    fail(`missing ${file}`);
+    return;
+  }
+  // Comments must go first. The prose below describes the `q: ""` pattern it
+  // exists to forbid, and counting it as evidence made the check pass on a file
+  // whose entire search section had been deleted. Same trap as checkApiClient,
+  // twice now — if a check quotes the thing it looks for, strip comments.
+  const source = (await readText(file))
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("//") && !line.trimStart().startsWith("*"))
+    .join("\n");
+
+  // Capture every `q:` value, then discard the empty ones in code.
+  // Doing the exclusion with a lookahead inside the pattern does not work:
+  // `\s*` happily matches zero characters, so the lookahead lands on the space
+  // rather than the quotes and `q: ""` passes as non-empty. That mistake made
+  // this very check report success on an e2e file with its search section
+  // deleted — a check that cannot fail is worse than no check.
+  const queries = [...source.matchAll(/\bq:\s*([^,\n}]+)/g)]
+    .map((m) => m[1].trim())
+    .filter((value) => !/^(""|''|``|"\s+"|'\s+'|`\s+`)$/.test(value));
+
+  if (queries.length === 0) {
+    fail(
+      `${file}: every /catalog/search call sends an empty q, so the free-text branch ` +
+        "of the query is never executed. Assert on a real product name.",
+    );
+    return;
+  }
+
+  // Finding results is only half of it. Without a negative case the suite
+  // passes just as well against a search that returns the whole catalogue for
+  // any input.
+  //
+  // The zero-result assertion has to be tied to a search call. Scanning the
+  // whole file for `items.length === 0` matched the cart-emptying assertion
+  // several hundred lines away, which made this pass with the search
+  // assertion deleted.
+  const searchWindows = [...source.matchAll(/"\/catalog\/search"/g)].map((m) =>
+    source.slice(m.index, m.index + 400),
+  );
+  const hasNegativeCase = searchWindows.some((window) =>
+    /items\??\.?\??\.length === 0/.test(window),
+  );
+
+  if (!hasNegativeCase) {
+    fail(
+      `${file}: no /catalog/search assertion that an unmatchable term returns zero ` +
+        "results, so a search ignoring its query entirely would still pass.",
+    );
+    return;
+  }
+
+  note(`e2e exercises free-text search (${queries.length} non-empty queries)`);
+}
+
 /** Relative imports must resolve; a bad path only fails at runtime otherwise. */
 async function checkImports(workspaces) {
   let checked = 0;
@@ -359,6 +427,7 @@ await checkServiceLayout(workspaces);
 await checkDockerfiles(workspaces);
 await checkCompose(workspaces);
 await checkApiClient();
+await checkSearchCoverage();
 await checkImports(workspaces);
 await checkEnvTemplate();
 

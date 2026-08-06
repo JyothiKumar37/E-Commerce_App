@@ -11,6 +11,12 @@ coverage/
 *.pem
 *.key
 
+# A Kubernetes Secret is base64, not encryption. This file holds the real
+# JWT signing keys and the Postgres password in readable form, so it is
+# generated per cluster and never committed. k8s/ecom-secrets.example.yaml
+# is the template.
+k8s/ecom-secrets.yaml
+
 logs/
 *.log
 npm-debug.log*
