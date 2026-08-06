@@ -166,9 +166,24 @@ async function swapAlias(target, previous) {
   // A cluster that ran an earlier build has a *concrete index* called
   // `products`, not an alias, and Elasticsearch refuses an alias whose name
   // collides with an existing index. Postgres is the source of truth and the
-  // new index is already populated, so dropping it is safe.
-  const collision = await elasticClient.indices.exists({ index: INDEX });
-  if (collision && !previous) {
+  // new index is already populated, so dropping that one is safe.
+  //
+  // The test has to be exact. `indices.exists` answers "does this name
+  // resolve?", which is true for an alias as well as an index — and `previous`
+  // was read from a getAlias call further up, so it can be stale. If another
+  // replica created the alias in between, the old check saw exists=true with
+  // previous=null and deleted `products`, which for an alias means deleting the
+  // index behind it: the freshly built one. A rare race with data loss at the
+  // end of it.
+  //
+  // indices.get keys its response by real index name, so an alias comes back
+  // under its target's name. Seeing INDEX itself as a key is the only proof
+  // that a concrete index by that name exists.
+  const resolved = await elasticClient.indices
+    .get({ index: INDEX, ignore_unavailable: true, allow_no_indices: true })
+    .catch(() => ({}));
+
+  if (Object.prototype.hasOwnProperty.call(resolved, INDEX) && INDEX !== target) {
     logger.warn({ index: INDEX }, "removing legacy concrete index to free the alias name");
     await elasticClient.indices.delete({ index: INDEX });
   }
