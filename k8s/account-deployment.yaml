@@ -14,14 +14,22 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 3
-  # maxUnavailable 0 keeps a replica serving for the whole rollout; readiness
-  # gating means the new pod only takes traffic once /readyz says its
-  # dependencies are reachable.
+  # maxSurge 0, and that is a deliberate downgrade from zero-downtime.
+  #
+  # With one replica, surging means scheduling a second copy of the pod before
+  # releasing the first. On a node with no spare CPU there is nowhere to put it:
+  # the new pod sits Pending, the old one is never released, and `rollout
+  # status` times out with "1 old replicas are pending termination" while
+  # nothing is actually wrong with the image.
+  #
+  # Replacing in place needs no headroom. It costs a few seconds of
+  # unavailability per service, which a single-replica deployment cannot honestly
+  # avoid anyway. Raise replicas above 1 and this can go back to maxSurge 1.
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
+      maxUnavailable: 1
+      maxSurge: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: account
@@ -90,32 +98,49 @@ spec:
               value: account
           resources:
             requests:
-              cpu: 100m
+              # Requests size the *scheduler's* reservation, not a cap — limits
+              # below are what throttle. These services idle near 10m, so the
+              # earlier 100m was a guess that reserved ten times what they use
+              # and left the node unable to fit its own workload.
+              cpu: 30m
               memory: 128Mi
             limits:
               cpu: 500m
               memory: 256Mi
+          # A startup probe comes first, so the liveness probe does not run at all
+          # until the process has answered once. Thirteen Node services booting
+          # together on two shared cores start slowly, and without this the
+          # liveness probe kills pods that are merely queued for CPU — which
+          # looks exactly like a crash loop and is not one.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
           # Readiness and liveness are deliberately different endpoints.
           # /readyz checks Postgres and Redis, so a failing dependency removes
-          # this pod from the Service; /healthz only asks whether the process is
+          # this pod from its Service; /healthz only asks whether the process is
           # alive. Restarting a pod because its database blinked would turn a
           # brief outage into a crash loop across every service at once.
           readinessProbe:
             httpGet:
               path: /readyz
               port: http
-            initialDelaySeconds: 5
             periodSeconds: 10
-            timeoutSeconds: 3
-            failureThreshold: 3
+            # 5s, not 3s: /readyz makes a Postgres and a Redis round trip, and
+            # under CPU contention that overran the old timeout. That is what
+            # pulled `search` out of its Service on the two-core node with the
+            # process perfectly healthy.
+            timeoutSeconds: 5
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /healthz
               port: http
-            initialDelaySeconds: 15
             periodSeconds: 20
-            timeoutSeconds: 3
-            failureThreshold: 3
+            timeoutSeconds: 5
+            failureThreshold: 6
           volumeMounts:
             # readOnlyRootFilesystem above leaves nowhere to write; Node wants a
             # scratch directory even though this code does not use one.
