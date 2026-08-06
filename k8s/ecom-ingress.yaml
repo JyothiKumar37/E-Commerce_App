@@ -44,9 +44,21 @@ metadata:
     # Checkout waits on the payment provider, so do not cut it short.
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
-    # The API must never be browser-cached; one stale 200 replays on every load.
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    #
+    # No configuration-snippet here. It previously carried
+    #   add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    # and ingress-nginx rejects it outright:
+    #   admission webhook "validate.nginx.ingress.kubernetes.io" denied the
+    #   request: nginx.ingress.kubernetes.io/configuration-snippet annotation
+    #   cannot be used. Snippet directives are disabled by the Ingress
+    #   administrator
+    # Snippets splice arbitrary text into the controller's nginx.conf, so recent
+    # releases disable them by default. Turning them back on cluster-wide to win
+    # one response header is a bad trade.
+    #
+    # The gateway now sets that header itself, in createApp(). That is the right
+    # place regardless: the service knows its responses are uncacheable, and the
+    # header then holds however it is fronted — Ingress, compose, or direct.
 spec:
   ingressClassName: nginx
   rules:

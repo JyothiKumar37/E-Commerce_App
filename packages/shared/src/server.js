@@ -35,6 +35,32 @@ export function createApp({
   );
 
   app.use(cors(buildCorsOptions(corsOrigins)));
+
+  // API responses must never be browser-cached.
+  //
+  // A GET with no cache headers is heuristically cacheable, so a browser may
+  // reuse it long after the data changed — and a single bad response cached
+  // early (index.html returned with a 200 while a proxy was misconfigured, say)
+  // is then replayed on every subsequent load, surviving a soft reload and
+  // invisible to curl.
+  //
+  // This lives in the application rather than at the edge on purpose. It was
+  // previously an nginx `configuration-snippet` annotation on the Ingress,
+  // which ingress-nginx refuses to apply by default — snippet annotations allow
+  // arbitrary config injection, so recent versions disable them outright. The
+  // header belongs to whoever knows the response is uncacheable, and that is
+  // this service, not whatever happens to sit in front of it.
+  //
+  // Health endpoints are exempt: probes hit them on a fixed interval and never
+  // cache, so the header is noise there.
+  app.use((req, res, next) => {
+    if (req.path !== "/healthz" && req.path !== "/readyz") {
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+      res.set("Pragma", "no-cache");
+    }
+    next();
+  });
+
   app.use(compression());
   app.use(express.json({ limit: bodyLimit }));
   app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
