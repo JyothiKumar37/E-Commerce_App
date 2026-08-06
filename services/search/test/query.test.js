@@ -136,6 +136,60 @@ describe("filters", () => {
     assert.ok(!buildFilters({ inStock: false }).some((f) => f.term?.inStock === true));
     assert.ok(buildFilters({ inStock: true }).some((f) => f.term?.inStock === true));
   });
+
+  it("ignores an unselected facet rather than filtering on nothing", () => {
+    // The bug that made the storefront show no products at all.
+    //
+    // The Search page builds these with searchParams.getAll("category"), which
+    // returns [] when the user has selected nothing — and [] is truthy, so a
+    // plain `if (category)` emitted `terms: { category: [] }`. An empty terms
+    // clause matches no document, so every search from the browser came back
+    // empty while the identical query from curl, which omits the key entirely,
+    // returned results.
+    for (const empty of [[], "", null, undefined]) {
+      const filters = buildFilters({ category: empty, brand: empty });
+      const terms = filters.filter((f) => f.terms);
+      assert.deepEqual(
+        terms,
+        [],
+        `category/brand of ${JSON.stringify(empty)} must not produce a filter, got ${JSON.stringify(terms)}`,
+      );
+    }
+  });
+
+  it("still filters when a facet is actually selected", () => {
+    // The negative case above must not be satisfied by dropping filters wholesale.
+    const filters = buildFilters({ category: ["Footwear"], brand: [] });
+    assert.deepEqual(filters.find((f) => f.terms)?.terms["category.folded"], ["Footwear"]);
+    assert.ok(!filters.some((f) => f.terms?.["brand.folded"]), "empty brand should be dropped");
+  });
+});
+
+describe("the exact payload the storefront sends", () => {
+  it("does not narrow an unfiltered browse to nothing", () => {
+    // /search?sort=newest with no facets ticked. Reproduces the request shape
+    // from apps/web/src/pages/Search.tsx verbatim.
+    const query = buildQuery({
+      q: "",
+      category: [],
+      brand: [],
+      minPrice: undefined,
+      maxPrice: undefined,
+      inStock: undefined,
+      minRating: undefined,
+    });
+    assert.deepEqual(
+      query.bool.filter,
+      [{ term: { isActive: true } }],
+      "browsing with no filters must restrict on isActive and nothing else",
+    );
+  });
+
+  it("does not narrow a text search to nothing", () => {
+    const query = buildQuery({ q: "Court Low Leather Sneaker", category: [], brand: [] });
+    assert.deepEqual(query.bool.filter, [{ term: { isActive: true } }]);
+    assert.ok(query.bool.must, "text clauses should still be built");
+  });
 });
 
 describe("buildQuery", () => {

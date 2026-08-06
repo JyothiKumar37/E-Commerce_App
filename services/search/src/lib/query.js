@@ -91,8 +91,19 @@ export function buildFilters({ category, brand, minPrice, maxPrice, inStock, min
   // the query terms as well as the stored ones. Facet links send back the exact
   // value and match; a hand-edited ?category=apparel now matches too, where the
   // bare keyword field demanded the precise casing.
-  if (category) filters.push({ terms: { "category.folded": asArray(category) } });
-  if (brand) filters.push({ terms: { "brand.folded": asArray(brand) } });
+  //
+  // `hasValue`, not a bare truthiness test. The storefront builds these from
+  // `searchParams.getAll("category")`, which returns [] when nothing is
+  // selected — and [] is truthy in JavaScript. `if (category)` therefore passed
+  // for "no category chosen" and emitted `terms: { category: [] }`, a filter
+  // that matches no document at all.
+  //
+  // Every search from the storefront was silently narrowed to nothing, while
+  // the same query sent by curl — which simply omits the key — returned
+  // results. That divergence is why this survived a green test suite: the e2e
+  // never sent the field, so it never built the empty filter.
+  if (hasValue(category)) filters.push({ terms: { "category.folded": asArray(category) } });
+  if (hasValue(brand)) filters.push({ terms: { "brand.folded": asArray(brand) } });
   if (inStock === true) filters.push({ term: { inStock: true } });
   if (minRating != null) filters.push({ range: { ratingAvg: { gte: minRating } } });
 
@@ -137,3 +148,14 @@ export function buildSort(sort, q) {
 }
 
 export const asArray = (value) => (Array.isArray(value) ? value : [value]);
+
+/**
+ * Whether a filter was actually supplied.
+ *
+ * An empty array and an empty string both mean "the user chose nothing", and
+ * both are values a form or a query string produces naturally. Neither may
+ * become a filter clause: an empty `terms` matches no documents, and an empty
+ * `= ANY('{}')` matches no rows.
+ */
+export const hasValue = (value) =>
+  Array.isArray(value) ? value.length > 0 : value !== undefined && value !== null && value !== "";

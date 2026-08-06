@@ -2,7 +2,7 @@ import { asyncHandler, paginated } from "@ecom/shared";
 import { pool } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
 import { INDEX, elasticClient } from "../lib/elastic.js";
-import { asArray, buildQuery, buildSort } from "../lib/query.js";
+import { asArray, buildQuery, buildSort, hasValue } from "../lib/query.js";
 
 /**
  * Product search.
@@ -164,11 +164,15 @@ async function searchViaPostgres({
     params.push(`%${q.trim()}%`);
     conditions.push(`(p.name ILIKE $${params.length} OR p.description ILIKE $${params.length})`);
   }
-  if (category) {
+  // hasValue, not truthiness: an empty array is truthy in JavaScript, and
+  // `= ANY('{}')` matches no rows — so the degraded path would return nothing
+  // for exactly the requests the storefront sends, where an unselected facet
+  // arrives as []. Same defect as the Elasticsearch filters, same fix.
+  if (hasValue(category)) {
     params.push(asArray(category));
     conditions.push(`p.category = ANY($${params.length}::text[])`);
   }
-  if (brand) {
+  if (hasValue(brand)) {
     params.push(asArray(brand));
     conditions.push(`p.brand = ANY($${params.length}::text[])`);
   }

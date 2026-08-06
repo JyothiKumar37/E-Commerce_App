@@ -182,6 +182,32 @@ console.log("\n── Free-text search ─────────────�
     `0 hits for "${typo}"`,
   );
 
+  // The payload the BROWSER sends, verbatim. Every assertion above omits
+  // category/brand entirely, the way curl does — but the storefront builds them
+  // with searchParams.getAll(), which yields [] when nothing is ticked. An
+  // empty array is truthy, so it became `terms: { category: [] }`, a filter
+  // matching no document. The site showed no products while this suite stayed
+  // green, because no assertion had ever sent the field.
+  const browserShape = await call("POST", "/catalog/search", {
+    auth: false,
+    body: { q: "", category: [], brand: [], sort: "newest", page: 1, pageSize: 24 },
+  });
+  expect(
+    "an unfiltered browse with empty facet arrays returns the catalogue",
+    browserShape.data?.items?.length === 12,
+    `got ${browserShape.data?.items?.length ?? 0} of 12 with category:[] brand:[]`,
+  );
+
+  const browserSearch = await call("POST", "/catalog/search", {
+    auth: false,
+    body: { q: target.name, category: [], brand: [], page: 1, pageSize: 24 },
+  });
+  expect(
+    "a text search with empty facet arrays still finds the product",
+    browserSearch.data?.items?.some((p) => p.productId === target.productId),
+    `${browserSearch.data?.items?.length ?? 0} hits`,
+  );
+
   // Nonsense must return nothing — otherwise the assertions above prove only
   // that search returns *something* regardless of the query.
   const nonsense = await call("POST", "/catalog/search", {
