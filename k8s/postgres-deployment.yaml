@@ -83,6 +83,23 @@ spec:
             # Deterministic collation, so index ordering matches across machines.
             - name: POSTGRES_INITDB_ARGS
               value: "--locale-provider=icu --icu-locale=en-US"
+            # PGDATA is a subdirectory of the mount, not the mount itself, and
+            # that distinction is load-bearing.
+            #
+            # fsGroup makes the kubelet hand the volume over as root:70 with the
+            # group write bit set. initdb refuses to run in a directory it does
+            # not own: it calls chmod(0700) on PGDATA, gets EPERM against a
+            # root-owned directory, and the pod crash-loops on
+            #   initdb: error: could not change permissions of directory
+            #   "/var/lib/postgresql/data": Operation not permitted
+            #
+            # Mounting the parent and pointing PGDATA one level down means
+            # postgres creates that directory itself, owns it, and can set 0700.
+            # It also keeps PGDATA clear of the lost+found that most ext4
+            # provisioners leave at a volume root, which is the other thing
+            # initdb refuses to start beside.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
           resources:
             requests:
               cpu: 250m
@@ -107,13 +124,13 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 6
           volumeMounts:
+            # Mounted at the parent. PGDATA above points inside it, so postgres
+            # creates and owns the data directory rather than inheriting a
+            # root-owned one from the kubelet. Do not add a subPath here: a
+            # subPath directory is pre-created by the kubelet, which puts the
+            # ownership problem straight back.
             - name: data
               mountPath: /var/lib/postgresql/data
-              # subPath puts PGDATA in a subdirectory of the volume rather than
-              # at its root. Most provisioners hand back an ext4 filesystem
-              # whose root already contains lost+found, and initdb refuses to
-              # run in a directory that is not empty.
-              subPath: pgdata
       volumes:
         - name: data
           persistentVolumeClaim:
