@@ -70,8 +70,8 @@ spec:
             limits: { cpu: 100m, memory: 64Mi }
       containers:
         - name: seed
-          image: ecom/database:local
-          imagePullPolicy: IfNotPresent
+          image: 034768441662.dkr.ecr.ap-south-1.amazonaws.com/ecom/database:v1.0.0
+          imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

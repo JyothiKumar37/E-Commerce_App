@@ -80,8 +80,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: api-gateway
-          image: ecom/api-gateway:local
-          imagePullPolicy: IfNotPresent
+          image: 034768441662.dkr.ecr.ap-south-1.amazonaws.com/ecom/api-gateway:v1.0.0
+          imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -107,7 +107,7 @@ spec:
             - name: COOKIE_SECURE
               value: "false"
             - name: CORS_ORIGINS
-              value: http://13.233.175.73
+              value: http://a84f4cac0970b4746a5a0678558372db-0aa66ca80bcc850a.elb.ap-south-1.amazonaws.com
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
