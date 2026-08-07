@@ -73,8 +73,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: product-review
-          image: ecom/product-review:local
-          imagePullPolicy: IfNotPresent
+          image: 034768441662.dkr.ecr.ap-south-1.amazonaws.com/ecom/product-review:v1.0.0
+          imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -88,7 +88,7 @@ spec:
             - name: ALLOW_INSECURE_DB_CONNECTION
               value: "true"
             - name: CORS_ORIGINS
-              value: http://13.233.175.73
+              value: http://a84f4cac0970b4746a5a0678558372db-0aa66ca80bcc850a.elb.ap-south-1.amazonaws.com
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
