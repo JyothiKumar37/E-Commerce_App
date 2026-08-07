@@ -16,6 +16,22 @@
 import { randomUUID } from "node:crypto";
 
 const API = process.env.API_URL ?? "http://127.0.0.1:8080";
+
+// An empty host is almost always an unset shell variable, and the symptom does
+// not say so. WHATWG URL parsing collapses the empty authority in "http:///api"
+// and promotes the first path segment to the hostname, so Node resolves DNS for
+// a host literally called "api" and fails with EAI_AGAIN — a stack trace that
+// names undici and never mentions the variable that was not set.
+if (/^[a-z][a-z0-9+.-]*:\/\/\//i.test(API)) {
+  console.error(`\nAPI_URL has no host: ${API}`);
+  console.error("An unset shell variable is the usual cause —");
+  console.error("  API_URL=http://$LB/api   with LB empty   becomes   http:///api\n");
+  console.error("Set it first, for example:");
+  console.error("  export LB=$(kubectl -n ingress-nginx get svc ingress-nginx-controller \\");
+  console.error("    -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')\n");
+  process.exit(2);
+}
+
 const STOCK = 5;
 const SHOPPERS = 12;
 
