@@ -1,0 +1,48 @@
+# EKS storage. Apply this BEFORE the PersistentVolumeClaims.
+#
+#   kubectl apply -f k8s/eks/storageclass.yaml
+#
+# The class is deliberately called `standard`, which is what minikube's built-in
+# provisioner is called and what every PVC in this repo already names. Defining
+# it here means the same PVC manifests work on both clusters with no edit and no
+# templating — the class name becomes the seam between environments.
+#
+# Without it the PVCs stay Pending for ever with
+#   storageclass.storage.k8s.io "standard" not found
+# and Postgres, Redis and Elasticsearch never schedule. EKS ships `gp2` and
+# nothing else.
+#
+# This lives under k8s/eks/ rather than k8s/ on purpose: `kubectl apply -f k8s/`
+# is not recursive, so a minikube deploy never picks it up.
+#
+# REQUIRES the EBS CSI driver addon. It is not installed by default on EKS since
+# 1.23 — the in-tree provisioner was removed, so without the addon this class
+# exists but provisions nothing.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: standard
+  labels:
+    app.kubernetes.io/name: standard
+    app.kubernetes.io/component: storage
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/managed-by: kubectl
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  # gp3 gives a 3000 IOPS / 125 MBps baseline at no extra cost, unlike gp2 where
+  # throughput scales with volume size. A 5Gi gp2 volume would be throttled to
+  # around 100 IOPS, which Postgres feels immediately.
+  encrypted: "true"
+# WaitForFirstConsumer, not Immediate, and this one matters on EKS.
+#
+# An EBS volume exists in exactly one availability zone and can only be attached
+# to a node in that zone. Binding immediately creates the volume before the
+# scheduler has chosen a node, so on a multi-AZ node group it lands in one zone
+# and the pod is then scheduled into another — leaving it Pending on
+# "volume node affinity conflict" with no way forward but deleting the PVC.
+volumeBindingMode: WaitForFirstConsumer
+# Retain the volume if the PVC is deleted, so an accidental `kubectl delete -f`
+# does not destroy the database. The volume must then be cleaned up by hand.
+reclaimPolicy: Retain
+allowVolumeExpansion: true
