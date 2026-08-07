@@ -20,16 +20,30 @@
 # COOKIE_PATH=/api/auth describes what the browser sees here, not the /auth it
 # serves internally.
 #
-# The host and the TLS block below are managed by scripts/set-domain.sh, which
-# moves them together with PUBLIC_ORIGIN and COOKIE_SECURE in the ConfigMap.
-# Those four have to agree — an Ingress matching a host the services do not
-# allow gives a site that renders pages and 403s every POST — so they are
-# changed as a set rather than by hand:
+# There is no `tls:` block here, and that is correct for this cluster.
 #
-#   bash scripts/set-domain.sh shop.example.com
+# TLS terminates at the Network Load Balancer, using a certificate from AWS
+# Certificate Manager attached by an annotation on the ingress-nginx controller
+# Service. An ACM certificate has no exportable private key — it can only be
+# attached to an AWS load balancer, never mounted into a pod — so there is
+# nothing for a Kubernetes TLS secret to hold. nginx therefore receives plain
+# HTTP from the NLB and must not try to serve HTTPS itself.
 #
-# With no host the rule matches any Host header, which is what a bare IP or a
-# load balancer hostname needs.
+# Two consequences follow, both easy to get wrong:
+#
+#   - The controller needs `ssl-redirect: "false"`. nginx sees every request as
+#     HTTP, so the usual redirect would send an HTTPS visitor to HTTPS for ever.
+#     The redirect is done instead by a separate listener the NLB's port 80 maps
+#     to.
+#   - Adding a `tls:` block below would make nginx present its own self-signed
+#     certificate on a connection the NLB has already decrypted.
+#
+# When adding a hostname, `host:` on both rules must match PUBLIC_ORIGIN in
+# ecom-config exactly. An Ingress that matches a host the services do not allow
+# gives a site that renders pages and 403s every POST.
+#
+# With no host at all, the rule matches any Host header — which is what a bare
+# IP or a load balancer hostname needs.
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress

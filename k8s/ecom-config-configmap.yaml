@@ -9,9 +9,12 @@
 #
 # Both values are consumed by reference, so a change is one edit plus a restart:
 #
-#   bash scripts/set-domain.sh shop.example.com
 #   kubectl apply -f k8s/ecom-config-configmap.yaml
 #   kubectl -n ecom rollout restart deploy
+#
+# The restart is not optional. A ConfigMap read through configMapKeyRef is
+# resolved when the container starts, so editing this file changes nothing for
+# a pod that is already running.
 #
 # They must move together. The gateway refuses to start when COOKIE_SECURE is
 # true and PUBLIC_ORIGIN is plain http, because a Secure cookie is never sent
