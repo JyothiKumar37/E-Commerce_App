@@ -99,7 +99,14 @@ let products = [];
     status === 200,
     `status ${status} ${JSON.stringify(data)?.slice(0, 200)}`,
   );
-  products = data?.items ?? [];
+  // Sorted by SKU, which is unique and stable, before anything reads it.
+  //
+  // Elasticsearch returns these ordered by createdAt descending over twelve rows
+  // seeded in a single transaction, so the timestamps tie and the tie-break is
+  // arbitrary — which product lands first genuinely differed between minikube
+  // and EKS. Two assertions were silently depending on that order and failed on
+  // one cluster while passing on the other, with identical code and data.
+  products = [...(data?.items ?? [])].sort((a, b) => (a.sku < b.sku ? -1 : 1));
   expect("returns seeded products", products.length === 12, `got ${products.length}`);
   // Both values are correct: false means the Elasticsearch index is serving,
   // true means it was unreachable and the Postgres trigram fallback took over.
@@ -261,9 +268,18 @@ console.log("\n── Free-text search ─────────────�
   );
 }
 
-const inStock = products.filter((p) => p.inStock);
+// The roles below must not overlap.
+//
+// `inStock[0]` and `inStock[1]` become cart fixtures, added with quantities of
+// 2 and 1. `lowStock` is then over-ordered to prove the stock error names the
+// available quantity. When the arbitrary ordering made `inStock[0]` the same
+// product as `lowStock`, the cart already held 2 of it and asking for 20 more
+// exceeded MAX_QUANTITY_PER_ITEM — so the request was rejected by validation
+// with a 400 before the stock check ever ran, and the assertion failed for a
+// reason that had nothing to do with inventory.
 const soldOut = products.find((p) => !p.inStock);
 const lowStock = products.find((p) => p.name.includes("Arc LED"));
+const inStock = products.filter((p) => p.inStock && p.productId !== lowStock?.productId);
 
 {
   const target = inStock[0];
