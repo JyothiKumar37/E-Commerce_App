@@ -1,0 +1,41 @@
+# The public identity of this deployment, in one place.
+#
+# PUBLIC_ORIGIN was previously copied into CORS_ORIGINS in twelve separate
+# Deployment manifests. Changing where the site lives then meant a sed across
+# all of them, and forgetting one leaves that service rejecting every browser
+# request with CORS_ORIGIN_DENIED while the rest work — a failure that looks
+# like a broken feature rather than a stale config. It went wrong twice: once
+# moving from the EC2 IP to the load balancer, once again here.
+#
+# Both values are consumed by reference, so a change is one edit plus a restart:
+#
+#   bash scripts/set-domain.sh shop.example.com
+#   kubectl apply -f k8s/ecom-config-configmap.yaml
+#   kubectl -n ecom rollout restart deploy
+#
+# They must move together. The gateway refuses to start when COOKIE_SECURE is
+# true and PUBLIC_ORIGIN is plain http, because a Secure cookie is never sent
+# over HTTP and every session would end silently at the access-token TTL with no
+# error anywhere. Keeping them in one object makes that pairing hard to break.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ecom-config
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: ecom-config
+    app.kubernetes.io/component: config
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
+data:
+  # Scheme and host exactly as the browser sees them, no trailing slash. This is
+  # the CORS allowlist for every service: it must match the address bar
+  # character for character, because the API sends a credentialed cookie and a
+  # wildcard origin is forbidden for those.
+  PUBLIC_ORIGIN: "http://a84f4cac0970b4746a5a0678558372db-0aa66ca80bcc850a.elb.ap-south-1.amazonaws.com"
+
+  # true only when PUBLIC_ORIGIN is https. The refresh token is the long-lived
+  # credential in this system; without Secure it travels in clear text on every
+  # request that reaches the API.
+  COOKIE_SECURE: "false"

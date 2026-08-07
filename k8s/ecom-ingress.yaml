@@ -20,10 +20,16 @@
 # COOKIE_PATH=/api/auth describes what the browser sees here, not the /auth it
 # serves internally.
 #
-# This is plain HTTP against an IP. Adding a hostname and TLS means setting
-# `host:` on both rules, adding a `tls:` block, and flipping COOKIE_SECURE to
-# true on the gateway — the refresh cookie should not cross the internet in
-# clear text.
+# The host and the TLS block below are managed by scripts/set-domain.sh, which
+# moves them together with PUBLIC_ORIGIN and COOKIE_SECURE in the ConfigMap.
+# Those four have to agree — an Ingress matching a host the services do not
+# allow gives a site that renders pages and 403s every POST — so they are
+# changed as a set rather than by hand:
+#
+#   bash scripts/set-domain.sh shop.example.com
+#
+# With no host the rule matches any Host header, which is what a bare IP or a
+# load balancer hostname needs.
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -62,7 +68,6 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    # No host: matches any Host header, which is what a bare IP needs.
     - http:
         paths:
           # (/|$)(.*) so /api, /api/ and /api/catalog/search all work:

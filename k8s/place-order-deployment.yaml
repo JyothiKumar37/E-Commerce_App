@@ -95,7 +95,10 @@ spec:
             - name: CART_SERVICE_URL
               value: http://cart:8082
             - name: CORS_ORIGINS
-              value: http://a84f4cac0970b4746a5a0678558372db-0aa66ca80bcc850a.elb.ap-south-1.amazonaws.com
+              valueFrom:
+                configMapKeyRef:
+                  name: ecom-config
+                  key: PUBLIC_ORIGIN
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
