@@ -62,6 +62,19 @@ for name in "${requested[@]}"; do
   args=(-f "${path}/Dockerfile" -t "${REGISTRY}/${name}:${TAG}")
   if [ "$name" = "web" ]; then
     args+=(--target "${WEB_TARGET}")
+    # Caught before the build rather than sixty seconds into it. The Dockerfile
+    # refuses a production build without this too — belt and braces, because a
+    # storefront built against the wrong origin is invisible until a browser
+    # tries it, and by then it is deployed.
+    if [ "${WEB_TARGET}" = "production" ] && [ -z "${VITE_API_URL:-}" ]; then
+      echo "" >&2
+      echo "VITE_API_URL is required to build 'web' for production." >&2
+      echo "Vite compiles it into the bundle; it cannot be set at runtime." >&2
+      echo "" >&2
+      echo "  VITE_API_URL=http://your-host/api bash scripts/build-images.sh web" >&2
+      echo "" >&2
+      exit 1
+    fi
     [ -n "${VITE_API_URL:-}" ] && args+=(--build-arg "VITE_API_URL=${VITE_API_URL}")
   fi
 

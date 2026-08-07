@@ -34,7 +34,27 @@ COPY apps/web ./apps/web
 WORKDIR /app/apps/web
 # Vite inlines VITE_* variables at build time, so the API URL must be known here
 # rather than injected at container start.
-ARG VITE_API_URL=http://localhost:8080
+#
+# No default, deliberately. This used to fall back to http://localhost:8080, and
+# a build that forgot the argument produced a bundle that looked perfectly
+# healthy — the image starts, nginx serves it, every probe passes — while every
+# browser called localhost:8080 on the visitor's own machine. Nothing
+# server-side can detect that: the value is compiled into the JavaScript, so no
+# health check, log line or `kubectl describe` will ever show it.
+#
+# Failing here costs one clear error message. Not failing here costs a deploy
+# that appears to work and does not.
+ARG VITE_API_URL
+RUN test -n "${VITE_API_URL}" || { \
+      echo "" >&2; \
+      echo "VITE_API_URL is required for a production build." >&2; \
+      echo "It is compiled into the bundle and cannot be set at runtime." >&2; \
+      echo "" >&2; \
+      echo "  docker build -f apps/web/Dockerfile --target production \\" >&2; \
+      echo "    --build-arg VITE_API_URL=https://shop.example.com/api -t ecom/web:tag ." >&2; \
+      echo "" >&2; \
+      exit 1; \
+    }
 ENV VITE_API_URL=${VITE_API_URL}
 RUN npm run build
 

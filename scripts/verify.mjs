@@ -280,6 +280,47 @@ async function checkApiClient() {
 }
 
 /**
+ * A production storefront build must not have a fallback API URL.
+ *
+ * `VITE_API_URL` is compiled into the bundle, so a build that forgets it
+ * produces an image that starts cleanly, serves pages and passes every probe
+ * while every browser calls the fallback host. It is undetectable server-side —
+ * no log line, health check or `kubectl describe` can see a value that was
+ * baked in at build time. It shipped twice: once to minikube, once to EKS.
+ */
+async function checkWebBuildArg() {
+  const file = "apps/web/Dockerfile";
+  if (!(await exists(file))) {
+    fail(`missing ${file}`);
+    return;
+  }
+  const source = await readText(file);
+
+  // The build stage is the one that runs `npm run build`; the development
+  // stage legitimately has no ARG at all.
+  const buildStage = source.slice(source.indexOf("AS build"));
+  const withDefault = buildStage.match(/^ARG VITE_API_URL=(.+)$/m);
+  if (withDefault) {
+    fail(
+      `${file}: the build stage defaults VITE_API_URL to ${withDefault[1]}. ` +
+        "A forgotten --build-arg then ships a bundle pointing at the wrong host, " +
+        "which nothing server-side can detect. Declare it bare and fail the build.",
+    );
+    return;
+  }
+  if (!/ARG VITE_API_URL\s*$/m.test(buildStage)) {
+    fail(`${file}: the build stage should declare a bare \`ARG VITE_API_URL\``);
+    return;
+  }
+  if (!/test -n "\$\{VITE_API_URL\}"/.test(buildStage)) {
+    fail(`${file}: declared but not enforced — the build should exit non-zero when it is empty`);
+    return;
+  }
+
+  note("production web build requires an explicit VITE_API_URL");
+}
+
+/**
  * The end-to-end suite must actually type something into search.
  *
  * Every catalog assertion originally sent `q: ""`, which takes the filter-only
@@ -428,6 +469,7 @@ await checkDockerfiles(workspaces);
 await checkCompose(workspaces);
 await checkApiClient();
 await checkSearchCoverage();
+await checkWebBuildArg();
 await checkImports(workspaces);
 await checkEnvTemplate();
 
