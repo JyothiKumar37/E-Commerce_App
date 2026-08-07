@@ -9,6 +9,10 @@
 #
 # It is kept here so `kubectl describe` records what the running bundle was
 # built against, which is otherwise invisible.
+#
+# Two replicas, sized for a two-node EKS cluster. On a single node with 2 vCPU
+# there is not room for that, so scale the tier down first:
+#   kubectl -n ecom scale deploy --replicas=1 -l app.kubernetes.io/component=backend
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,8 +25,16 @@ metadata:
     app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/managed-by: kubectl
 spec:
-  replicas: 1
+  replicas: 2
   revisionHistoryLimit: 3
+  # Zero-downtime: the replacement must pass its readiness probe before the pod
+  # it replaces is removed. Combined with two replicas and the PodDisruptionBudget
+  # in poddisruptionbudgets.yaml, neither a rollout nor a node drain can take this
+  # service to zero endpoints — and EKS drains nodes on every AMI upgrade.
+  #
+  # This needs room for one extra pod per deployment while a rollout runs. That is
+  # affordable on two nodes; it was not on the single 2-vCPU node minikube ran on,
+  # which is why this was maxSurge 0 before. See the header note.
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -41,6 +53,20 @@ spec:
         app.kubernetes.io/version: "1.0.0"
         app.kubernetes.io/managed-by: kubectl
     spec:
+      # Spread the replicas across nodes. Preferred rather than required: on a
+      # single-node cluster a hard rule would leave the second replica Pending
+      # for ever, and one node is a perfectly reasonable place to run this in
+      # development.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: web
+                    app.kubernetes.io/part-of: ecom
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       # No runAsNonRoot here, and that is deliberate. This is nginx:1.27-alpine

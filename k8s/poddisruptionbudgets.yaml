@@ -1,0 +1,232 @@
+# Disruption budgets for the replicated tier.
+#
+# These govern VOLUNTARY disruption — a node drain, a cluster autoscaler
+# scale-in, an EKS AMI upgrade. Without one, `kubectl drain` evicts every pod on
+# a node at once, and with two replicas that can mean both copies of a service
+# going at the same time. The rollout settings in each Deployment do not help
+# here: they only constrain the Deployment controller, not the eviction API.
+#
+# minAvailable 1, not maxUnavailable 0. A budget that permits no disruption at
+# all blocks a drain for ever and turns a routine node upgrade into an
+# operational incident.
+#
+# Deliberately absent for postgres, redis, elasticsearch and
+# recommendation-generation. Each runs a single replica, so any budget over zero
+# would make them permanently undrainable. Their availability comes from the
+# volume surviving the pod, not from a second copy.
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-gateway
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-gateway
+      app.kubernetes.io/part-of: ecom
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: account
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: account
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: account
+      app.kubernetes.io/part-of: ecom
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cart
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: cart
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cart
+      app.kubernetes.io/part-of: ecom
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: inventory
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: inventory
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: inventory
+      app.kubernetes.io/part-of: ecom
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: order-status
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: order-status
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: order-status
+      app.kubernetes.io/part-of: ecom
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: payment
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: payment
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payment
+      app.kubernetes.io/part-of: ecom
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: place-order
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: place-order
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: place-order
+      app.kubernetes.io/part-of: ecom
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: product-review
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: product-review
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: product-review
+      app.kubernetes.io/part-of: ecom
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: recommendation
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: recommendation
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: recommendation
+      app.kubernetes.io/part-of: ecom
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: search
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: search
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: search
+      app.kubernetes.io/part-of: ecom
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: shipping
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: shipping
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shipping
+      app.kubernetes.io/part-of: ecom
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web
+  namespace: ecom
+  labels:
+    app.kubernetes.io/name: web
+    app.kubernetes.io/component: storefront
+    app.kubernetes.io/part-of: ecom
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web
+      app.kubernetes.io/part-of: ecom

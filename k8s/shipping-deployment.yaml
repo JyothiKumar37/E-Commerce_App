@@ -1,4 +1,8 @@
 # Shipping quotes and shipment records.
+#
+# Two replicas, sized for a two-node EKS cluster. On a single node with 2 vCPU
+# there is not room for that, so scale the tier down first:
+#   kubectl -n ecom scale deploy --replicas=1 -l app.kubernetes.io/component=backend
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -11,24 +15,21 @@ metadata:
     app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/managed-by: kubectl
 spec:
-  replicas: 1
+  replicas: 2
   revisionHistoryLimit: 3
-  # maxSurge 0, and that is a deliberate downgrade from zero-downtime.
+  # Zero-downtime: the replacement must pass its readiness probe before the pod
+  # it replaces is removed. Combined with two replicas and the PodDisruptionBudget
+  # in poddisruptionbudgets.yaml, neither a rollout nor a node drain can take this
+  # service to zero endpoints — and EKS drains nodes on every AMI upgrade.
   #
-  # With one replica, surging means scheduling a second copy of the pod before
-  # releasing the first. On a node with no spare CPU there is nowhere to put it:
-  # the new pod sits Pending, the old one is never released, and `rollout
-  # status` times out with "1 old replicas are pending termination" while
-  # nothing is actually wrong with the image.
-  #
-  # Replacing in place needs no headroom. It costs a few seconds of
-  # unavailability per service, which a single-replica deployment cannot honestly
-  # avoid anyway. Raise replicas above 1 and this can go back to maxSurge 1.
+  # This needs room for one extra pod per deployment while a rollout runs. That is
+  # affordable on two nodes; it was not on the single 2-vCPU node minikube ran on,
+  # which is why this was maxSurge 0 before. See the header note.
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: shipping
@@ -44,6 +45,20 @@ spec:
     spec:
       # Nothing here calls the Kubernetes API, so mounting a token would only
       # hand an attacker a credential on a successful RCE.
+      # Spread the replicas across nodes. Preferred rather than required: on a
+      # single-node cluster a hard rule would leave the second replica Pending
+      # for ever, and one node is a perfectly reasonable place to run this in
+      # development.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: shipping
+                    app.kubernetes.io/part-of: ecom
       automountServiceAccountToken: false
       # The shared server drains in-flight requests and closes its pools on
       # SIGTERM. Thirty seconds is ample and stops a slow checkout being cut off.
