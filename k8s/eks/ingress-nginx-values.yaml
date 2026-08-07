@@ -1,0 +1,100 @@
+# Helm values for ingress-nginx on EKS, with TLS terminated at the NLB.
+#
+#   helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+#     --namespace ingress-nginx --create-namespace \
+#     -f k8s/eks/ingress-nginx-values.yaml
+#
+# This is NOT a Kubernetes manifest and is not applied with kubectl. It
+# configures the ingress-nginx chart, and specifically the LoadBalancer Service
+# whose annotations are what AWS reads when it builds the NLB.
+#
+# The ACM certificate cannot be referenced from an Ingress. An ACM certificate
+# has no exportable private key — it is usable only by an AWS load balancer,
+# never by a process inside the cluster — so there is nothing a Kubernetes TLS
+# secret could hold and nothing for nginx to serve. The `tls:` block in
+# k8s/ecom-ingress.yaml is deliberately absent for that reason; adding one would
+# make nginx present a self-signed certificate on a connection the NLB has
+# already decrypted.
+#
+# NOTE: the ARN below contains an AWS account ID. That is not a credential, but
+# if this repository is public and you would rather not publish it, replace the
+# value with a placeholder and pass the real one at install time:
+#   --set controller.service.annotations."service\.beta\.kubernetes\.io/aws-load-balancer-ssl-cert"=$CERT_ARN
+controller:
+  service:
+    # The chart's default, restated because everything below depends on it.
+    type: LoadBalancer
+
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: nlb
+
+      # The NLB decrypts and forwards plain HTTP to the pods.
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: http
+
+      # Only the `https` port gets a TLS listener; `http` stays plain TCP so it
+      # can carry the redirect below.
+      service.beta.kubernetes.io/aws-load-balancer-ssl-ports: https
+
+      # Must live in the same region as the load balancer. A certificate from
+      # another region is invisible here and the listener is created without
+      # TLS, which looks like the annotation was ignored.
+      service.beta.kubernetes.io/aws-load-balancer-ssl-cert: arn:aws:acm:ap-south-1:034768441662:certificate/5ebe16b1-c2b7-4e16-aad3-54836ef7aca6
+
+    # The two mappings that make NLB termination work. Both are counter-intuitive:
+    #
+    #   https -> http    Port 443 on the NLB is already decrypted by the time it
+    #                    reaches a pod, so it must arrive at nginx's PLAINTEXT
+    #                    port. Sending it to nginx's 443 makes nginx attempt a
+    #                    TLS handshake on data that is no longer encrypted, and
+    #                    every request fails with an SSL error.
+    #
+    #   http  -> tohttps Port 80 goes to a listener whose only job is the
+    #                    permanent redirect defined in http-snippet.
+    targetPorts:
+      http: tohttps
+      https: http
+
+  containerPort:
+    http: 80
+    https: 443
+    tohttps: 2443
+
+  config:
+    # nginx sees every request as HTTP, including the ones the NLB decrypted, so
+    # it cannot tell an HTTPS visitor from an HTTP one. Leaving the built-in
+    # redirect on would bounce HTTPS visitors to HTTPS for ever — a redirect
+    # loop that only appears once a certificate is attached.
+    ssl-redirect: "false"
+
+    # The redirect, on its own listener. It has to be here rather than as an
+    # Ingress annotation: ingress-nginx disables snippet annotations by default
+    # (they splice arbitrary text into nginx.conf), which is what rejected the
+    # earlier configuration-snippet on ecom-api-ingress. Chart values are
+    # applied by the administrator, so this path stays open.
+    http-snippet: |
+      server {
+        listen 2443;
+        return 308 https://$host$request_uri;
+      }
+
+  # Two replicas across nodes, matching the rest of the stack. A single-replica
+  # ingress controller means every request fails while it restarts.
+  replicaCount: 2
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: ingress-nginx
+                app.kubernetes.io/component: controller
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
