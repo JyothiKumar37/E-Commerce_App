@@ -4,7 +4,7 @@
 # variable below changes nothing by itself. The image has to be built with it:
 #
 #   docker build -f apps/web/Dockerfile --target production \
-#     --build-arg VITE_API_URL=http://a84f4cac0970b4746a5a0678558372db-0aa66ca80bcc850a.elb.ap-south-1.amazonaws.com/api \
+#     --build-arg VITE_API_URL=https://jeds.shop/api \
 #     -t ecom/web:local .
 #
 # It is kept here so `kubectl describe` records what the running bundle was
@@ -92,7 +92,7 @@ spec:
               add: [NET_BIND_SERVICE, CHOWN, SETUID, SETGID]
           env:
             - name: VITE_API_URL
-              value: http://a84f4cac0970b4746a5a0678558372db-0aa66ca80bcc850a.elb.ap-south-1.amazonaws.com/api
+              value: https://jeds.shop/api
           ports:
             - name: http
               containerPort: 80

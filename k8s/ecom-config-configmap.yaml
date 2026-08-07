@@ -36,9 +36,9 @@ data:
   # the CORS allowlist for every service: it must match the address bar
   # character for character, because the API sends a credentialed cookie and a
   # wildcard origin is forbidden for those.
-  PUBLIC_ORIGIN: "http://a84f4cac0970b4746a5a0678558372db-0aa66ca80bcc850a.elb.ap-south-1.amazonaws.com"
+  PUBLIC_ORIGIN: "https://jeds.shop"
 
   # true only when PUBLIC_ORIGIN is https. The refresh token is the long-lived
   # credential in this system; without Secure it travels in clear text on every
   # request that reaches the API.
-  COOKIE_SECURE: "false"
+  COOKIE_SECURE: "true"
