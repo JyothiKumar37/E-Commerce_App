@@ -93,10 +93,35 @@ export const related = asyncHandler(async (req, res) => {
     [productId, excluded, limit - rows.length],
   );
 
-  return res.json({
-    recommendations: [...rows, ...sameCategory].map(toCard),
-    strategy: rows.length ? "affinity_padded" : "same_category",
-  });
+  const picks = [...rows, ...sameCategory];
+  if (picks.length > 0) {
+    return res.json({
+      recommendations: picks.map(toCard),
+      strategy: rows.length ? "affinity_padded" : "same_category",
+    });
+  }
+
+  // Last resort: the best-rated products overall.
+  //
+  // Both queries above can legitimately return nothing. A product that is the
+  // only one in its category has no same-category neighbours once itself is
+  // excluded, and with no co-purchase history there is no affinity either — so
+  // the detail page rendered an empty "related" rail with no explanation.
+  //
+  // Something generic beats nothing at all here: the rail exists to keep a
+  // visitor moving through the catalogue, and any active product does that
+  // better than blank space.
+  const { rows: popular } = await pool.query(
+    `SELECT ${PRODUCT_FIELDS}, NULL::numeric AS score, 'popular' AS reason
+     FROM products p
+     LEFT JOIN inventory i ON i.product_id = p.product_id
+     WHERE p.is_active AND p.product_id <> $1
+     ORDER BY p.rating_avg DESC NULLS LAST, p.rating_count DESC
+     LIMIT $2`,
+    [productId, limit],
+  );
+
+  return res.json({ recommendations: popular.map(toCard), strategy: "popular" });
 });
 
 /** Trending: view velocity over the last 7 days. */

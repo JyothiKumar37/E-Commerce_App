@@ -744,6 +744,37 @@ console.log("\n── Recommendations and view tracking ────────
     related.status === 200 && related.data?.recommendations?.length > 0,
     `status ${related.status} strategy=${related.data?.strategy}`,
   );
+
+  // The case the assertion above only reached by luck.
+  //
+  // `products[0]` comes from a createdAt-descending sort over seeds written in
+  // one transaction, so the tie-break is arbitrary and which product lands
+  // first varies between clusters. When it happened to be the sole Footwear
+  // item, the same-category fallback excluded the product itself, found no
+  // neighbours, and returned an empty rail — a real defect that this suite
+  // reported as a flaky failure.
+  //
+  // Pick that product deliberately rather than hoping to trip over it.
+  const perCategory = {};
+  for (const p of products) perCategory[p.category] = (perCategory[p.category] ?? 0) + 1;
+  const lonely = products.find((p) => perCategory[p.category] === 1);
+
+  if (lonely) {
+    const solo = await call("GET", `/recommendations/related/${lonely.productId}?limit=4`, {
+      auth: false,
+    });
+    expect(
+      "the only product in its category still gets a related rail",
+      solo.status === 200 && solo.data?.recommendations?.length > 0,
+      `"${lonely.name}" (${lonely.category}, 1 of 1) returned ` +
+        `${solo.data?.recommendations?.length ?? 0} via strategy=${solo.data?.strategy}`,
+    );
+    expect(
+      "and never recommends the product itself",
+      !solo.data?.recommendations?.some((r) => r.productId === lonely.productId),
+      "the product appeared in its own related list",
+    );
+  }
 }
 
 console.log("\n── Admin boundary ────────────────────────────────────");
