@@ -19,7 +19,7 @@ output "configure_kubectl" {
 }
 
 output "ecr_registry" {
-  description = "Registry prefix for scripts/ecr-push.sh and scripts/set-images.sh."
+  description = "Registry prefix for scripts/ecr-push.sh and scripts/set-images.sh. The repositories themselves are not managed here — ecr-push.sh creates any that are missing on first push."
   value       = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.region}.amazonaws.com/ecom"
 }
 

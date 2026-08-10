@@ -85,12 +85,6 @@ variable "cluster_endpoint_public_access_cidrs" {
   default     = ["0.0.0.0/0"]
 }
 
-variable "create_ecr_repositories" {
-  description = "Create the fourteen ECR repositories the application images are pushed to. Strictly adjacent to the cluster rather than part of it, but creating them by hand fourteen times is a poor use of an afternoon."
-  type        = bool
-  default     = true
-}
-
 variable "tags" {
   description = "Applied to everything that supports tagging."
   type        = map(string)
