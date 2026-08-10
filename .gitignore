@@ -34,3 +34,16 @@ Thumbs.db
 .cache/
 .vite/
 *.tsbuildinfo
+
+# Terraform. State can contain secrets in plain text — database passwords,
+# certificate details, anything a resource returns — so it is never committed.
+# tfvars carries per-environment values including the domain and owner tags.
+terraform/.terraform/
+# .terraform.lock.hcl is deliberately NOT ignored. It pins the exact provider
+# versions and checksums, so a colleague or a CI runner resolves the same
+# providers rather than whatever the version constraints allow today.
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log

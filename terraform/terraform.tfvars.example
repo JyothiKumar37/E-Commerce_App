@@ -1,0 +1,26 @@
+# Copy to terraform.tfvars and edit. terraform.tfvars is gitignored.
+
+region       = "ap-south-1"
+cluster_name = "ecom"
+
+# A Route 53 public hosted zone for this must already exist, and an ACM
+# certificate covering it must be ISSUED in the region above.
+domain_name = "jeds.shop"
+
+node_instance_type = "m7i-flex.large"
+
+node_group_size = {
+  desired = 2
+  min     = 2
+  max     = 4
+}
+
+# One NAT gateway instead of one per AZ. Saves about $32/month and makes a
+# single AZ a shared dependency for outbound traffic from every node.
+single_nat_gateway = true
+
+tags = {
+  Project   = "ecom"
+  ManagedBy = "terraform"
+  Owner     = "CHANGE_ME"
+}
