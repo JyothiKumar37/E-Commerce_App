@@ -24,6 +24,39 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
+  # Closes a gap in the module's recommended rules.
+  #
+  # Those allow node-to-node TCP on 1025-65535 only — "ephemeral ports". Pods
+  # listening below 1025 are therefore unreachable from a pod on another node,
+  # and the storefront is nginx on port 80.
+  #
+  # The symptom is worth recognising because it does not look like a firewall.
+  # Traffic to the API on 8080 works, so the cluster appears healthy; only the
+  # storefront fails, and only when the ingress controller and the web pod
+  # happen to be scheduled on different nodes. With two replicas of each that is
+  # roughly half the time, so it presents as flakiness rather than as a rule.
+  # In the controller log it reads:
+  #
+  #   upstream timed out (110: Operation timed out) while connecting to
+  #   upstream, request: "HEAD / HTTP/1.1", upstream: "http://10.0.0.171:80/"
+  #
+  # "while connecting" is the tell — nginx never got a TCP connection, so
+  # nothing reached the application to fail.
+  #
+  # This is node-to-node within one security group, which is where Kubernetes
+  # expects pod traffic to be unrestricted; per-pod restriction belongs in a
+  # NetworkPolicy, not here.
+  node_security_group_additional_rules = {
+    ingress_self_privileged_ports = {
+      description = "Node to node, ports below 1025"
+      protocol    = "tcp"
+      from_port   = 1
+      to_port     = 1024
+      type        = "ingress"
+      self        = true
+    }
+  }
+
   # Addons are declared below as first-class resources rather than through this
   # module's `cluster_addons` input. See the note above aws_eks_addon.this.
   cluster_addons = {}
