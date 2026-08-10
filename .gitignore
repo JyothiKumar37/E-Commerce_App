@@ -1,49 +1,115 @@
+# ---------------------------------------------------------------- build output
 node_modules/
 dist/
 build/
 coverage/
 .nyc_output/
+.cache/
+.vite/
+*.tsbuildinfo
 
-# Secrets — .env.example is the template that IS committed.
+# --------------------------------------------------------------------- secrets
+# .env.example is the committed template; every other .env holds real values.
+# The broad pattern matters: `.env` and `.env.local` alone leave `.env.production`
+# tracked, which is the one most likely to hold live credentials.
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+
+# Private key material. Certificates (.crt, .cer) are public by design and are
+# not listed; the things that sign with them are.
 *.pem
 *.key
+*.p12
+*.pfx
 
-# A Kubernetes Secret is base64, not encryption. This file holds the real
-# JWT signing keys and the Postgres password in readable form, so it is
-# generated per cluster and never committed. k8s/ecom-secrets.example.yaml
-# is the template.
+# A Kubernetes Secret is base64, not encryption. This file holds the real JWT
+# signing keys and the Postgres password in readable form, so it is generated
+# per cluster and never committed. k8s/ecom-secrets.example.yaml is the template.
 k8s/ecom-secrets.yaml
 
+# Cluster credentials. A kubeconfig embeds either a token or a command that
+# mints one, and grants whatever the cluster's RBAC allows.
+kubeconfig
+*.kubeconfig
+.kube/
+.aws/
+
+# ------------------------------------------------------------------- terraform
+# State is the dangerous one: it records every attribute a resource returned,
+# in plain text, including values marked sensitive in the configuration.
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+
+# The provider and module cache. Large, machine-specific, and rebuilt by
+# `terraform init`.
+**/.terraform/
+.terragrunt-cache/
+
+# Per-environment inputs. `*.tfvars` does not match `terraform.tfvars.example`,
+# which ends in .example, so the template stays tracked without a negation.
+*.tfvars
+*.tfvars.json
+
+# Saved plans. A plan file contains the full resource diff — including the
+# sensitive values the plan output redacts on screen — so it leaks more than
+# state does for anyone who thinks of it as "just the diff".
+tfplan
+*.tfplan
+plan.out
+
+# Local overrides. Terraform merges these automatically, so a committed one
+# silently changes behaviour for everybody.
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+crash.log
+crash.*.log
+
+# .terraform.lock.hcl is deliberately NOT ignored. It pins exact provider
+# versions and checksums, so a colleague or a CI runner resolves the same
+# providers rather than whatever the version constraints happen to allow today.
+
+# ------------------------------------------------------------------------ helm
+charts/*.tgz
+*.tgz
+
+# --------------------------------------------------------------------- backups
+# Deliberately specific. A blanket `*.sql` would also ignore
+# packages/database/migrations/, which must be committed — the migration runner
+# checksums those files and refuses to run if one goes missing.
+*.dump
+*.sql.gz
+backup*.sql
+*-backup.sql
+
+# ---------------------------------------------------------------------- logging
 logs/
 *.log
 npm-debug.log*
 .npm/
 
-.DS_Store
-Thumbs.db
+# ------------------------------------------------------- editors and platforms
 .idea/
 .vscode/*
 !.vscode/extensions.json
+*.swp
+*.swo
+*~
+.DS_Store
+._*
+.Spotlight-V100
+Thumbs.db
+desktop.ini
 
-# Local editor/agent state. Machine-specific, not part of the project.
+# Local agent state. Machine-specific, not part of the project.
 .claude/
 
-.cache/
-.vite/
-*.tsbuildinfo
-
-# Terraform. State can contain secrets in plain text — database passwords,
-# certificate details, anything a resource returns — so it is never committed.
-# tfvars carries per-environment values including the domain and owner tags.
-terraform/.terraform/
-# .terraform.lock.hcl is deliberately NOT ignored. It pins the exact provider
-# versions and checksums, so a colleague or a CI runner resolves the same
-# providers rather than whatever the version constraints allow today.
-*.tfstate
-*.tfstate.*
-*.tfvars
-!*.tfvars.example
-crash.log
+# ------------------------------------------------------------------- scratch
+tmp/
+.tmp/
+*.orig
+*.rej
