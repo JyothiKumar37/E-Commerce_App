@@ -20,7 +20,7 @@ locals {
 }
 
 resource "aws_ecr_repository" "this" {
-  for_each = toset(local.ecr_repositories)
+  for_each = var.create_ecr_repositories ? toset(local.ecr_repositories) : toset([])
 
   name = "ecom/${each.value}"
 

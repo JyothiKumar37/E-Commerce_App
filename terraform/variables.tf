@@ -1,11 +1,11 @@
 variable "region" {
-  description = "AWS region. Must match the region of the ACM certificate — a certificate is regional and cannot be attached to a load balancer elsewhere."
+  description = "AWS region. Must match the region of the ACM certificate that will be attached to the load balancer later — a certificate is regional and invisible to a load balancer elsewhere."
   type        = string
   default     = "ap-south-1"
 }
 
 variable "cluster_name" {
-  description = "EKS cluster name. Used as the prefix for nearly every resource here."
+  description = "EKS cluster name, and the prefix for nearly every resource here."
   type        = string
   default     = "ecom"
 
@@ -16,25 +16,14 @@ variable "cluster_name" {
 }
 
 variable "cluster_version" {
-  description = "Kubernetes minor version. EKS supports each for about 14 months; check the release calendar before pinning something old."
+  description = "Kubernetes minor version. EKS supports each for about 14 months before extended-support charges begin."
   type        = string
   default     = "1.31"
-}
-
-variable "domain_name" {
-  description = "Public hostname the storefront answers on. A Route 53 public hosted zone for it must already exist, as must an ISSUED ACM certificate covering it."
-  type        = string
 
   validation {
-    condition     = can(regex("^[a-z0-9][a-z0-9.-]*\\.[a-z]{2,}$", var.domain_name))
-    error_message = "A bare hostname, no scheme and no trailing dot: jeds.shop"
+    condition     = can(regex("^1\\.(2[7-9]|3[0-9])$", var.cluster_version))
+    error_message = "Expected a supported EKS minor version, for example 1.31."
   }
-}
-
-variable "hosted_zone_name" {
-  description = "Route 53 hosted zone to create the record in. Defaults to domain_name, which is right when the domain is an apex; set it explicitly for a subdomain (app.example.com lives in the example.com zone)."
-  type        = string
-  default     = ""
 }
 
 variable "node_instance_type" {
@@ -44,7 +33,7 @@ variable "node_instance_type" {
 }
 
 variable "node_group_size" {
-  description = "Desired, minimum and maximum node count. Two is the floor for the workload here: the stateless tier runs two replicas with anti-affinity, and a single node leaves every second replica sharing a fate with the first."
+  description = "Desired, minimum and maximum node count. Two is the floor for this workload: the stateless tier runs two replicas with anti-affinity and PodDisruptionBudgets of minAvailable 1, so on one node a drain has nowhere to move a pod and blocks."
   type = object({
     desired = number
     min     = number
@@ -62,8 +51,19 @@ variable "node_group_size" {
   }
 }
 
+variable "node_disk_size" {
+  description = "Root volume per node, in GiB. Fourteen container images and their layers, plus headroom for kubelet's image garbage collection; the 20 GiB default runs out and starts evicting running pods."
+  type        = number
+  default     = 50
+
+  validation {
+    condition     = var.node_disk_size >= 30
+    error_message = "At least 30 GiB — smaller fills up once the images are pulled."
+  }
+}
+
 variable "vpc_cidr" {
-  description = "CIDR for the VPC. /16 leaves room for the /20 subnets carved below and for the pod IPs the VPC CNI hands out — every pod gets a real VPC address, so subnets run out of space far sooner than node count suggests."
+  description = "CIDR for the VPC. The VPC CNI gives every pod a real subnet address, so address space runs out long before CPU does — do not size this to the node count."
   type        = string
   default     = "10.0.0.0/16"
 
@@ -74,7 +74,19 @@ variable "vpc_cidr" {
 }
 
 variable "single_nat_gateway" {
-  description = "Route all private egress through one NAT gateway. True saves about $32/month per AZ avoided and makes that AZ a single point of failure for outbound traffic. False is the production answer; true is the honest one for a demo."
+  description = "Route all private egress through one NAT gateway. True saves about $32/month per AZ avoided and makes that AZ a shared dependency for outbound traffic. False is the production answer; true is the honest one for a demo."
+  type        = bool
+  default     = true
+}
+
+variable "cluster_endpoint_public_access_cidrs" {
+  description = "Who may reach the Kubernetes API. The default is open, which is what the AWS console and a laptop on a changing IP need. Narrow it to an office or VPN range if this becomes more than a demo."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "create_ecr_repositories" {
+  description = "Create the fourteen ECR repositories the application images are pushed to. Strictly adjacent to the cluster rather than part of it, but creating them by hand fourteen times is a poor use of an afternoon."
   type        = bool
   default     = true
 }

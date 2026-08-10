@@ -5,10 +5,11 @@ module "eks" {
   cluster_name    = var.cluster_name
   cluster_version = var.cluster_version
 
-  # Public API endpoint so kubectl works from a laptop. Private-only is the
-  # stricter choice and needs a bastion or VPN to administer; restrict by CIDR
-  # instead if this is more than a demo.
-  cluster_endpoint_public_access = true
+  # Public API endpoint so kubectl and the console work from outside the VPC.
+  # Private-only is the stricter choice but needs a bastion or VPN to
+  # administer at all; restricting by CIDR is the middle ground.
+  cluster_endpoint_public_access       = true
+  cluster_endpoint_public_access_cidrs = var.cluster_endpoint_public_access_cidrs
 
   # Grants the identity running `terraform apply` cluster-admin through an EKS
   # access entry. Without it the cluster is created and immediately
@@ -42,10 +43,7 @@ module "eks" {
       max_size     = var.node_group_size.max
       desired_size = var.node_group_size.desired
 
-      # 50 GiB: fourteen container images plus their layers, plus kubelet's
-      # image garbage collection headroom. The 20 GiB default runs the node out
-      # of disk and triggers eviction of running pods.
-      disk_size = 50
+      disk_size = var.node_disk_size
 
       # Lets nodes pull from ECR without a pull secret. The managed node group
       # gets ReadOnly by default; this is restated so removing it is a decision
