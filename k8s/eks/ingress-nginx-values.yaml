@@ -38,7 +38,7 @@ controller:
       # Must live in the same region as the load balancer. A certificate from
       # another region is invisible here and the listener is created without
       # TLS, which looks like the annotation was ignored.
-      service.beta.kubernetes.io/aws-load-balancer-ssl-cert: arn:aws:acm:ap-south-1:034768441662:certificate/5ebe16b1-c2b7-4e16-aad3-54836ef7aca6
+      service.beta.kubernetes.io/aws-load-balancer-ssl-cert: arn:aws:acm:ap-south-1:034768441662:certificate/a3ffacc8-48ba-4914-ae1e-c2117e153477
 
     # The two mappings that make NLB termination work. Both are counter-intuitive:
     #
