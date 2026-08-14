@@ -404,7 +404,7 @@ spec:
     directory:
       recurse: false
       # Exclude secrets — they are applied manually and must not be in Git.
-      exclude: 'ecom-secrets.yaml|ecom-secrets.example.yaml|eks/*'
+      exclude: '{ecom-secrets.yaml,ecom-secrets.example.yaml,eks/*}'
   destination:
     server: https://kubernetes.default.svc
     namespace: ${ECOM_NAMESPACE}
