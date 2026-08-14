@@ -213,7 +213,7 @@ else
   step "Updating Route 53 A record"
 
   # Extract domain from ConfigMap
-  DOMAIN="$(grep 'PUBLIC_ORIGIN' k8s/ecom-config-configmap.yaml | head -1 | sed 's/.*: *"//;s|https\?://||;s/"//g;s/ //g')"
+  DOMAIN="$(grep -v '^\s*#' k8s/ecom-config-configmap.yaml | grep 'PUBLIC_ORIGIN:' | head -1 | sed 's/.*: *"//;s|https\?://||;s/"//g;s/ //g')"
   if [ -z "$DOMAIN" ]; then
     fail "Could not extract domain from k8s/ecom-config-configmap.yaml"
   fi
@@ -475,7 +475,7 @@ info "  ArgoCD Sync:   ${SYNC_STATUS}"
 info "  ArgoCD Health: ${HEALTH_STATUS}"
 
 # Extract domain for curl check
-DOMAIN="$(grep 'PUBLIC_ORIGIN' k8s/ecom-config-configmap.yaml | head -1 | sed 's/.*: *"//;s/"//g;s/ //g')"
+DOMAIN="$(grep -v '^\s*#' k8s/ecom-config-configmap.yaml | grep 'PUBLIC_ORIGIN:' | head -1 | sed 's/.*: *"//;s/"//g;s/ //g')"
 
 # ── Summary ────────────────────────────────────────────────────────────────
 echo ""
