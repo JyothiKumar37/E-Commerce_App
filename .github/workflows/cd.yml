@@ -90,6 +90,27 @@ jobs:
           NODE
           node "${RUNNER_TEMP}/matrix.mjs" >> "$GITHUB_OUTPUT"
 
+  debug-oidc:
+    name: Debug OIDC claims (temporary; remove once fixed)
+    # No `needs`, so it runs immediately and in parallel with the build. It does
+    # NOT assume the AWS role -- it only prints the token GitHub issues, so its
+    # `sub` can be matched against the IAM trust policy exactly. It sits in the
+    # production environment so the `sub` it prints is the same one build-push
+    # presents (environment jobs carry `:environment:production`, not `:ref:...`).
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Print token sub and aud
+        run: |
+          payload=$(curl -sH "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r '.value' | cut -d. -f2)
+          case $((${#payload} % 4)) in 2) payload="$payload==" ;; 3) payload="$payload=" ;; esac
+          echo "$payload" | tr '_-' '/+' | base64 -d | jq '{sub, aud, repository, repository_owner, ref}'
+
   build-push:
     name: Build ${{ matrix.name }}
     needs: prepare
