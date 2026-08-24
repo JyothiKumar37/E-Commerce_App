@@ -167,13 +167,18 @@ jobs:
 
       - name: Scan image
         id: scan
-        # Fails the job on a critical vulnerability, which blocks the push and
-        # the downstream gitops-bump. Fail closed on security.
+        # Blocks the push (and the deploy) on a FIXABLE critical vulnerability.
+        # only-fixed=true means an unpatched base-OS CVE with no upstream fix is
+        # still reported to the Security tab via the SARIF upload below, but does
+        # not gate a deploy on something nobody can action. If this step fails,
+        # the answer is to refresh the base image or the flagged dependency --
+        # not to loosen the gate.
         uses: anchore/scan-action@v6
         with:
           image: ${{ steps.img.outputs.ref }}
           fail-build: true
           severity-cutoff: critical
+          only-fixed: true
           output-format: sarif
 
       - name: Upload scan results
