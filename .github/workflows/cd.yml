@@ -1,0 +1,262 @@
+# Continuous delivery.
+#
+# Builds and publishes every image to ECR under an immutable tag, scans each
+# one, then bumps the Kubernetes manifests in Git. ArgoCD (already configured
+# with automated sync + self-heal on the k8s/ path) is what actually rolls the
+# change out — this workflow never touches the cluster directly, so it cannot
+# fight the GitOps controller.
+#
+#   prepare       resolve the image tag and discover the 14 build targets
+#   build-push    OIDC -> ECR; build, scan (Grype), and push each image
+#   gitops-bump   open a PR that rolls the k8s/ image refs; ArgoCD deploys on merge
+#
+# Required configuration (Settings -> Secrets and variables -> Actions):
+#   secret  AWS_GITHUB_OIDC_ROLE_ARN   IAM role the workflow assumes via OIDC
+#   var     AWS_REGION                 e.g. ap-south-1
+#   var     VITE_API_URL               public API URL baked into the storefront
+#                                      bundle, e.g. https://jeds.shop/api
+#
+# Also enable, under Settings -> Actions -> General:
+#   * "Allow GitHub Actions to create and approve pull requests", so the deploy
+#     PR can be opened by the workflow.
+#   * "Allow auto-merge" (optional), so the PR merges itself once branch
+#     protection is satisfied; otherwise it waits for a manual merge.
+#
+# Image scanning uses Grype (anchore/scan-action), NOT Trivy: the Trivy action
+# tags and Docker Hub images were compromised in the March 2026 supply-chain
+# attack and remained affected through mid-2026. Do not swap this back to Trivy
+# without pinning a verified-clean commit SHA.
+name: CD
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+# Serialise delivery per ref. Unlike CI this does not cancel a run in flight —
+# a half-finished build-and-bump should complete, not be interrupted.
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  ECR_NAMESPACE: ecom
+
+jobs:
+  prepare:
+    name: Resolve tag and targets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      image_tag: ${{ steps.tag.outputs.image_tag }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute an immutable image tag
+        id: tag
+        # A version tag deploys itself; anything else deploys the commit. Never
+        # "latest" — a mutable tag makes a rollback guesswork.
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "image_tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "image_tag=sha-$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Discover build targets
+        id: matrix
+        # Same discovery rule as scripts/verify.mjs and build-images.sh: every
+        # services/* directory, plus the gateway, the database job and the web
+        # storefront. Emitted as a job matrix so a new service is picked up with
+        # no edit here.
+        run: |
+          cat > "${RUNNER_TEMP}/matrix.mjs" <<'NODE'
+          import { readdirSync } from "node:fs";
+          const services = readdirSync("services", { withFileTypes: true })
+            .filter((d) => d.isDirectory())
+            .map((d) => ({ name: d.name, path: `services/${d.name}`, target: "" }));
+          const extra = [
+            { name: "api-gateway", path: "apps/api-gateway", target: "" },
+            { name: "database", path: "packages/database", target: "" },
+            { name: "web", path: "apps/web", target: "production" },
+          ];
+          const include = [...services, ...extra].sort((a, b) => a.name.localeCompare(b.name));
+          process.stdout.write("matrix=" + JSON.stringify({ include }) + "\n");
+          NODE
+          node "${RUNNER_TEMP}/matrix.mjs" >> "$GITHUB_OUTPUT"
+
+  build-push:
+    name: Build ${{ matrix.name }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Gates on the "production" environment, so environment protection rules
+    # (required reviewers, wait timers) apply before anything is published.
+    environment: production
+    permissions:
+      contents: read
+      id-token: write # assume the AWS role via OIDC
+      security-events: write # upload Grype SARIF to the Security tab
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_OIDC_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve image reference
+        id: img
+        run: |
+          echo "ref=${{ steps.ecr.outputs.registry }}/${ECR_NAMESPACE}/${{ matrix.name }}:${{ needs.prepare.outputs.image_tag }}" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure the ECR repository exists
+        run: |
+          repo="${ECR_NAMESPACE}/${{ matrix.name }}"
+          if ! aws ecr describe-repositories --repository-names "$repo" >/dev/null 2>&1; then
+            aws ecr create-repository \
+              --repository-name "$repo" \
+              --image-scanning-configuration scanOnPush=true \
+              --encryption-configuration encryptionType=AES256 >/dev/null
+            echo "created $repo"
+          fi
+
+      - name: Require the storefront build arg
+        if: matrix.name == 'web'
+        # VITE_API_URL is compiled into the bundle. A missing value ships a
+        # storefront that calls the wrong host, which nothing server-side can
+        # detect — so fail here rather than deploy it. The Dockerfile enforces
+        # this too; this is the earlier, clearer error.
+        run: |
+          if [ -z "${{ vars.VITE_API_URL }}" ]; then
+            echo "The VITE_API_URL repository variable must be set to build 'web'." >&2
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        # Built once and loaded into the local daemon so Grype can scan the
+        # exact artefact before it is pushed. The layer cache is keyed per image.
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.path }}/Dockerfile
+          target: ${{ matrix.target }}
+          load: true
+          push: false
+          tags: ${{ steps.img.outputs.ref }}
+          build-args: ${{ matrix.name == 'web' && format('VITE_API_URL={0}', vars.VITE_API_URL) || '' }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          provenance: false
+
+      - name: Scan image
+        id: scan
+        # Fails the job on a critical vulnerability, which blocks the push and
+        # the downstream gitops-bump. Fail closed on security.
+        uses: anchore/scan-action@v6
+        with:
+          image: ${{ steps.img.outputs.ref }}
+          fail-build: true
+          severity-cutoff: critical
+          output-format: sarif
+
+      - name: Upload scan results
+        if: always() && steps.scan.outputs.sarif != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+          category: grype-${{ matrix.name }}
+
+      - name: Push image
+        run: docker push "${{ steps.img.outputs.ref }}"
+
+  gitops-bump:
+    name: Open deployment PR for ArgoCD
+    needs: [prepare, build-push]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only branch builds promote. A `v*` tag build publishes the images but
+    # leaves the promotion to a normal main commit, so the manifests never point
+    # at a tag that was cut from a side branch.
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    permissions:
+      contents: write # create the deploy branch and commit
+      pull-requests: write # open and auto-merge the deployment PR
+      id-token: write # OIDC, to resolve the registry account
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_OIDC_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Resolve the registry prefix
+        id: reg
+        run: |
+          account="$(aws sts get-caller-identity --query Account --output text)"
+          echo "registry=${account}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${ECR_NAMESPACE}" >> "$GITHUB_OUTPUT"
+
+      - name: Point manifests at the new images
+        # set-images.sh rewrites only the fourteen application images (matching
+        # the last path segment exactly) and leaves postgres/redis/elasticsearch
+        # on their upstream tags.
+        run: bash scripts/set-images.sh "${{ steps.reg.outputs.registry }}" "${{ needs.prepare.outputs.image_tag }}"
+
+      - name: Open (and auto-merge) the deployment PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.image_tag }}
+        run: |
+          if git diff --quiet -- k8s; then
+            echo "Manifests already point at ${TAG}; nothing to deploy."
+            exit 0
+          fi
+
+          branch="deploy/${TAG}"
+          # [skip ci] rides on the squash-merge subject below, so merging into
+          # main cannot retrigger this workflow, keeping the loop closed no
+          # matter who (or what) performs the merge.
+          title="chore(deploy): roll images to ${TAG} [skip ci]"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add k8s
+          git commit -m "$title"
+          # Force so a re-run of the same tag updates the existing deploy branch.
+          git push --force origin "$branch"
+
+          # Reuse an open PR for this tag if the job is re-run.
+          pr="$(gh pr list --head "$branch" --base main --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$pr" ]; then
+            gh pr create --base main --head "$branch" --title "$title" --body \
+              "Automated image roll to \`${TAG}\`. The images are already built, scanned and pushed to ECR; merging this PR updates the manifests that ArgoCD syncs to the cluster."
+          fi
+
+          # Merge automatically once branch-protection conditions are met. The
+          # squash subject keeps [skip ci], so the merge does not retrigger CD.
+          # Non-fatal: if auto-merge is not enabled on the repo, the PR is left
+          # open for a manual merge instead.
+          gh pr merge "$branch" --auto --squash --delete-branch --subject "$title" \
+            || echo "Auto-merge unavailable; the deployment PR is open for a manual merge."

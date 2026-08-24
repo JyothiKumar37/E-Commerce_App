@@ -118,6 +118,9 @@ if [ ! -d "${ROOT_DIR}/terraform" ]; then
   fail "terraform/ directory not found. Run this from the project root."
 fi
 
+if [ ! -f "${ROOT_DIR}/k8s/ecom-secrets.yaml" ]; then
+  fail "k8s/ecom-secrets.yaml not found. Copy from ecom-secrets.example.yaml and fill in real values."
+fi
 
 # Verify AWS credentials
 if ! aws sts get-caller-identity >/dev/null 2>&1; then
@@ -312,22 +315,7 @@ info "ArgoCD admin password: ${ARGOCD_PASSWORD}"
 step "Bootstrapping namespace, secrets, and ConfigMap"
 
 kubectl apply -f k8s/00-namespace.yaml 2>&1 | sed 's/^/    /'
-if kubectl -n "$ECOM_NAMESPACE" get secret ecom-secrets >/dev/null 2>&1; then
-  info "Secret 'ecom-secrets' already exists, keeping it."
-else
-  info "Generating new secure passwords for ecom-secrets..."
-  JWT_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
-  INTERNAL_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
-  PG_PASSWORD="$(openssl rand -base64 24 | tr -d '\n/+=')"
-
-  kubectl create secret generic ecom-secrets \
-    --namespace "$ECOM_NAMESPACE" \
-    --from-literal=POSTGRES_PASSWORD="$PG_PASSWORD" \
-    --from-literal=DATABASE_URL="postgres://ecom:${PG_PASSWORD}@postgres:5432/ecom" \
-    --from-literal=JWT_SECRET="$JWT_SECRET" \
-    --from-literal=INTERNAL_JWT_SECRET="$INTERNAL_SECRET" \
-    --dry-run=client -o yaml | kubectl apply -f - 2>&1 | sed 's/^/    /'
-fi
+kubectl apply -f k8s/ecom-secrets.yaml 2>&1 | sed 's/^/    /'
 kubectl apply -f k8s/ecom-config-configmap.yaml 2>&1 | sed 's/^/    /'
 success "Namespace '${ECOM_NAMESPACE}', secrets, and configmap applied"
 
