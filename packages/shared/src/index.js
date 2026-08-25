@@ -55,6 +55,14 @@ export { createServiceClient } from "./serviceClient.js";
 export { createApp, registerHealthRoutes, start } from "./server.js";
 
 export {
+  registry,
+  httpRequestDuration,
+  recordHttpRequest,
+  metricsText,
+  metricsContentType,
+} from "./metrics.js";
+
+export {
   loadConfig,
   baseEnvSchema,
   postgresEnvSchema,

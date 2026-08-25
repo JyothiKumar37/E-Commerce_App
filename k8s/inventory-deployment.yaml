@@ -87,6 +87,10 @@ spec:
               containerPort: 8083
               protocol: TCP
           env:
+            - name: NODE_OPTIONS
+              value: "--import @ecom/shared/telemetry"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.monitoring:4318"
             - name: ALLOW_INSECURE_DB_CONNECTION
               value: "true"
             - name: CORS_ORIGINS

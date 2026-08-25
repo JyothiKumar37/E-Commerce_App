@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import pino from "pino";
+import { trace, context } from "@opentelemetry/api";
+import { recordHttpRequest } from "./metrics.js";
 
 /** Per-request store so every log line can carry the correlation id. */
 export const requestContext = new AsyncLocalStorage();
@@ -59,7 +61,16 @@ export function createLogger({ service, level, pretty } = {}) {
     // Attach the correlation id to every line emitted inside a request.
     mixin() {
       const store = requestContext.getStore();
-      return store?.requestId ? { requestId: store.requestId } : {};
+      const fields = store?.requestId ? { requestId: store.requestId } : {};
+      // Correlate logs with traces: attach the active span's ids when the
+      // OTel SDK is running. Absent an active span (or in local/test runs
+      // with no SDK) this is simply omitted - logging never depends on it.
+      const spanContext = trace.getSpan(context.active())?.spanContext();
+      if (spanContext?.traceId) {
+        fields.trace_id = spanContext.traceId;
+        fields.span_id = spanContext.spanId;
+      }
+      return fields;
     },
     timestamp: pino.stdTimeFunctions.isoTime,
     transport: usePretty
@@ -86,6 +97,16 @@ export function requestLogger(logger) {
 
       res.on("finish", () => {
         const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+
+        // RED metrics reuse the timing we already compute. Label by the
+        // matched route TEMPLATE, never req.originalUrl, to bound cardinality.
+        recordHttpRequest({
+          method: req.method,
+          route: req.route ? (req.baseUrl || "") + req.route.path : "unmatched",
+          status: res.statusCode,
+          durationSeconds: durationMs / 1000,
+        });
+
         const payload = {
           method: req.method,
           path: req.originalUrl,

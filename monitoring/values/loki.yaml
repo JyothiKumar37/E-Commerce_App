@@ -1,0 +1,44 @@
+# Grafana Loki (community chart 18.x), SingleBinary mode, chunks in S3 via IRSA.
+# CONFIRM: bucket name and the ecom-loki-irsa role ARN match what you created.
+deploymentMode: SingleBinary
+loki:
+  auth_enabled: false
+  storage:
+    type: s3
+    bucketNames:
+      chunks: ecom-loki-034768441662
+      ruler: ecom-loki-034768441662
+    s3:
+      region: ap-south-1
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: s3
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+  limits_config:
+    retention_period: 720h # 30 days
+  compactor:
+    retention_enabled: true
+    delete_request_store: s3
+serviceAccount:
+  create: true
+  name: loki # MUST match the IRSA trust policy sub (system:serviceaccount:monitoring:loki)
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::034768441662:role/ecom-loki-irsa
+singleBinary:
+  replicas: 1
+# SingleBinary mode: disable the scalable-topology components and caches.
+backend:
+  replicas: 0
+read:
+  replicas: 0
+write:
+  replicas: 0
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false

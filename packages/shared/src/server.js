@@ -6,6 +6,7 @@ import cookieParser from "cookie-parser";
 import { AppError } from "./errors.js";
 import { errorHandler, notFoundHandler } from "./http.js";
 import { requestLogger } from "./logger.js";
+import { metricsText, metricsContentType } from "./metrics.js";
 
 /**
  * Builds an Express app with the middleware every service needs, in the right
@@ -54,7 +55,7 @@ export function createApp({
   // Health endpoints are exempt: probes hit them on a fixed interval and never
   // cache, so the header is noise there.
   app.use((req, res, next) => {
-    if (req.path !== "/healthz" && req.path !== "/readyz") {
+    if (req.path !== "/healthz" && req.path !== "/readyz" && req.path !== "/metrics") {
       res.set("Cache-Control", "no-store, no-cache, must-revalidate");
       res.set("Pragma", "no-cache");
     }
@@ -66,6 +67,18 @@ export function createApp({
   app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
   if (enableCookies) app.use(cookieParser());
   app.use(requestLogger(logger));
+
+  // Prometheus scrape target, registered in the shared factory so every
+  // service exposes it identically. Unauthenticated and exempt from the
+  // no-store header above; access is restricted to in-cluster scraping.
+  app.get("/metrics", async (_req, res, next) => {
+    try {
+      res.set("Content-Type", metricsContentType);
+      res.end(await metricsText());
+    } catch (err) {
+      next(err);
+    }
+  });
 
   app.locals.serviceName = serviceName;
   return app;

@@ -1,0 +1,31 @@
+# ArgoCD Application: alloy
+# Multi-source: the upstream Helm chart plus this repo's values file ($values).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alloy
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: monitoring
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  sources:
+    - repoURL: https://grafana.github.io/helm-charts
+      chart: alloy
+      targetRevision: "1.11.1"
+      helm:
+        valueFiles:
+          - $values/monitoring/values/alloy.yaml
+    - repoURL: https://github.com/JyothiKumar37/E-Commerce_App.git
+      targetRevision: main
+      ref: values
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

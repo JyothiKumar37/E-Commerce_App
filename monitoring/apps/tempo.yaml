@@ -1,0 +1,31 @@
+# ArgoCD Application: tempo
+# Multi-source: the upstream Helm chart plus this repo's values file ($values).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tempo
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: monitoring
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  sources:
+    - repoURL: https://grafana-community.github.io/helm-charts
+      chart: tempo
+      targetRevision: "2.2.3"
+      helm:
+        valueFiles:
+          - $values/monitoring/values/tempo.yaml
+    - repoURL: https://github.com/JyothiKumar37/E-Commerce_App.git
+      targetRevision: main
+      ref: values
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

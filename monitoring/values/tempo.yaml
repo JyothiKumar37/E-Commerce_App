@@ -1,0 +1,25 @@
+# Grafana Tempo (community chart 2.x), single binary, traces in S3 via IRSA.
+# CONFIRM: bucket name, the ecom-tempo-irsa role ARN, and the value key nesting
+# against the chart README - single-binary Tempo values shapes vary by version.
+tempo:
+  retention: 336h # 14 days
+  storage:
+    trace:
+      backend: s3
+      s3:
+        bucket: ecom-tempo-034768441662
+        region: ap-south-1
+        endpoint: s3.ap-south-1.amazonaws.com
+  # Receive traces from the OTel Collector over OTLP.
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+serviceAccount:
+  create: true
+  name: tempo # MUST match the IRSA trust policy sub (system:serviceaccount:monitoring:tempo)
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::034768441662:role/ecom-tempo-irsa

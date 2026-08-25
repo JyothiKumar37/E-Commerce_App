@@ -1,0 +1,41 @@
+# kube-prometheus-stack values. Chart version pinned to 88.5.4 in the Application.
+prometheus:
+  prometheusSpec:
+    retention: 30d
+    # Discover ServiceMonitors/PodMonitors/Rules from ALL namespaces (the ecom
+    # services live in the ecom namespace, not this release's).
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 50Gi
+grafana:
+  # TODO Phase 6: replace admin password with an existing Secret and enable SSO.
+  defaultDashboardsEnabled: true
+  # Loki + Tempo datasources with log<->trace correlation.
+  # NOTE verify the Tempo service port against the tempo chart (3200 vs 3100)
+  # and the derivedFields $$ escaping against your kube-prometheus-stack version.
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      url: http://loki.monitoring.svc:3100
+      jsonData:
+        derivedFields:
+          - name: TraceID
+            matcherRegex: '"trace_id":"(\w+)"'
+            url: "$${__value.raw}"
+            datasourceUid: tempo
+    - name: Tempo
+      type: tempo
+      uid: tempo
+      url: http://tempo.monitoring.svc:3200
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: loki
+# alertmanager Slack routing is wired in Phase 4 (alerts) - left at chart default here.

@@ -92,6 +92,10 @@ spec:
               containerPort: 8080
               protocol: TCP
           env:
+            - name: NODE_OPTIONS
+              value: "--import @ecom/shared/telemetry"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.monitoring:4318"
             - name: ACCESS_TOKEN_TTL
               value: 15m
             - name: ACCOUNT_SERVICE_URL

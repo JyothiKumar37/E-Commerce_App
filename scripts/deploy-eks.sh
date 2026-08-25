@@ -404,7 +404,11 @@ spec:
     directory:
       recurse: false
       # Exclude secrets — they are applied manually and must not be in Git.
-      exclude: '{ecom-secrets.yaml,ecom-secrets.example.yaml,eks/*}'
+      # migrate-job/seed-job are excluded too: a Job's spec.template is
+      # immutable, so once they have run ArgoCD cannot apply an image-tag
+      # bump to them and errors with "field is immutable". They are one-shot
+      # bootstrap Jobs applied out of band (Step 8), not part of the synced app.
+      exclude: '{ecom-secrets.yaml,ecom-secrets.example.yaml,eks/*,migrate-job.yaml,seed-job.yaml}'
   destination:
     server: https://kubernetes.default.svc
     namespace: ${ECOM_NAMESPACE}

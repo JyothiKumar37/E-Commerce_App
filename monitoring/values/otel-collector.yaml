@@ -1,0 +1,31 @@
+# OpenTelemetry Collector. fullnameOverride is REQUIRED: the service must resolve
+# as otel-collector.monitoring:4318, which is what the ecom service deployments
+# were wired to (NODE_OPTIONS/OTEL_EXPORTER_OTLP_ENDPOINT).
+fullnameOverride: otel-collector
+mode: deployment
+# Contrib image ships the Faro receiver used for frontend RUM in Phase 5.
+image:
+  repository: otel/opentelemetry-collector-contrib
+command:
+  name: otelcol-contrib
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+  processors:
+    batch: {}
+  exporters:
+    otlp/tempo:
+      endpoint: tempo.monitoring.svc:4317
+      tls:
+        insecure: true # in-cluster; Tempo has no TLS on the OTLP port
+  service:
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [batch]
+        exporters: [otlp/tempo]

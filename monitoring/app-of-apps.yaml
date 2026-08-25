@@ -1,0 +1,26 @@
+# App-of-apps root. Apply this once (like the main ecom Application in
+# deploy-eks.sh); it syncs every child Application under monitoring/apps.
+#
+#   kubectl apply -f monitoring/app-of-apps.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: monitoring
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/JyothiKumar37/E-Commerce_App.git
+    targetRevision: main
+    path: monitoring/apps
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
