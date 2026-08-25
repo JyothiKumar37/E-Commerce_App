@@ -60,7 +60,92 @@ grafana:
           datasourceUid: loki
 # alertmanager Slack routing is wired in Phase 4 (alerts) - left at chart default here.
 
-# Deferred to Phase 4 (alerting). Disabling now frees a pod + PVC on the
-# capacity-constrained two-node cluster.
+# Phase 4: alerting. Re-enabled now the third node provides capacity.
 alertmanager:
-  enabled: false
+  enabled: true
+  alertmanagerSpec:
+    # The Slack webhook is mounted from a Secret so it never lands in Git.
+    # Create it once BEFORE syncing (placeholder is fine to start):
+    #   kubectl -n monitoring create secret generic alertmanager-slack \
+    #     --from-literal=webhook='https://hooks.slack.com/services/XXX/YYY/ZZZ'
+    secrets:
+      - alertmanager-slack
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+  config:
+    route:
+      receiver: slack
+      group_by: [alertname, namespace, job]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - matchers: ['severity="critical"']
+          receiver: slack
+          repeat_interval: 1h
+    receivers:
+      - name: slack
+        slack_configs:
+          - channel: "#alerts"
+            api_url_file: /etc/alertmanager/secrets/alertmanager-slack/webhook
+            send_resolved: true
+
+# Alert rules grounded in the metrics now flowing (RED histogram + kube-state).
+# kube-prometheus-stack sets `job` to the service name by default; if a rule
+# stays silent, verify the label with a Prometheus query and adjust.
+additionalPrometheusRulesMap:
+  ecom-alerts:
+    groups:
+      - name: ecom-slo
+        rules:
+          - alert: EcomHighErrorRate
+            expr: 'sum by (job) (rate(http_request_duration_seconds_count{namespace="ecom",status=~"5.."}[5m])) / sum by (job) (rate(http_request_duration_seconds_count{namespace="ecom"}[5m])) > 0.05'
+            for: 10m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.job }} 5xx error rate above 5% (SLO burn)"
+          - alert: EcomHighLatencyP99
+            expr: 'histogram_quantile(0.99, sum by (job, le) (rate(http_request_duration_seconds_bucket{namespace="ecom"}[5m]))) > 0.5'
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.job }} p99 latency above 500ms"
+      - name: ecom-app
+        rules:
+          - alert: EcomServiceDown
+            expr: 'up{namespace="ecom"} == 0'
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.job }} has no healthy scrape targets"
+          - alert: EcomCheckoutSagaErrors
+            expr: 'sum(rate(http_request_duration_seconds_count{namespace="ecom",job="place-order",status=~"5.."}[5m])) > 0.1'
+            for: 10m
+            labels:
+              severity: critical
+            annotations:
+              summary: "place-order (checkout saga) 5xx rate elevated"
+          - alert: EcomPodCrashLooping
+            expr: 'max by (namespace, pod) (kube_pod_container_status_waiting_reason{namespace="ecom",reason="CrashLoopBackOff"}) > 0'
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.pod }} is CrashLoopBackOff"
+      - name: ecom-infra
+        rules:
+          - alert: EcomVolumeFillingUp
+            expr: 'kubelet_volume_stats_available_bytes{namespace="ecom"} / kubelet_volume_stats_capacity_bytes{namespace="ecom"} < 0.15'
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "PVC {{ $labels.persistentvolumeclaim }} under 15% free"
