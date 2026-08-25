@@ -31,6 +31,9 @@ serviceAccount:
     eks.amazonaws.com/role-arn: arn:aws:iam::034768441662:role/ecom-loki-irsa
 singleBinary:
   replicas: 1
+  persistence:
+    storageClass: standard
+    size: 10Gi
 # SingleBinary mode: disable the scalable-topology components and caches.
 backend:
   replicas: 0
@@ -41,4 +44,11 @@ write:
 chunksCache:
   enabled: false
 resultsCache:
+  enabled: false
+
+# Trim pods on the small cluster: the canary (2 pods) and test hook are not
+# needed for this deployment.
+lokiCanary:
+  enabled: false
+test:
   enabled: false

@@ -10,10 +10,11 @@ prometheus:
     storageSpec:
       volumeClaimTemplate:
         spec:
+          storageClassName: standard # matches k8s/eks/storageclass.yaml (no default class exists)
           accessModes: ["ReadWriteOnce"]
           resources:
             requests:
-              storage: 50Gi
+              storage: 20Gi
 grafana:
   # TODO Phase 6: replace admin password with an existing Secret and enable SSO.
   defaultDashboardsEnabled: true
@@ -39,3 +40,8 @@ grafana:
         tracesToLogsV2:
           datasourceUid: loki
 # alertmanager Slack routing is wired in Phase 4 (alerts) - left at chart default here.
+
+# Deferred to Phase 4 (alerting). Disabling now frees a pod + PVC on the
+# capacity-constrained two-node cluster.
+alertmanager:
+  enabled: false
