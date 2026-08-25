@@ -1,5 +1,24 @@
 # kube-prometheus-stack values. Chart version pinned to 88.5.4 in the Application.
 prometheus:
+  # Scrape the ecom application services' /metrics (the RED metrics from the
+  # shared library). Selects the 11 backends + the api-gateway; excludes the
+  # nginx web frontend, which exposes no /metrics endpoint. Prometheus has
+  # cluster-wide RBAC, so a ServiceMonitor here scrapes across into the ecom ns.
+  additionalServiceMonitors:
+    - name: ecom-services
+      namespaceSelector:
+        matchNames: [ecom]
+      selector:
+        matchLabels:
+          app.kubernetes.io/part-of: ecom
+        matchExpressions:
+          - key: app.kubernetes.io/component
+            operator: In
+            values: [backend, gateway]
+      endpoints:
+        - port: http
+          path: /metrics
+          interval: 30s
   prometheusSpec:
     retention: 30d
     # Discover ServiceMonitors/PodMonitors/Rules from ALL namespaces (the ecom
