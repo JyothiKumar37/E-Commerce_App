@@ -62,6 +62,7 @@ export async function getCart(userId, auth) {
   const { products } = await catalog.post("/products/lookup", {
     body: { productIds },
     auth,
+    idempotent: true, // read-only lookup: safe to retry a transient blip
   });
   const byId = new Map(products.map((p) => [p.productId, p]));
 
@@ -122,6 +123,7 @@ export async function addItem(userId, auth, { productId, quantity }) {
   const { products } = await catalog.post("/products/lookup", {
     body: { productIds: [productId] },
     auth,
+    idempotent: true, // read-only lookup: safe to retry a transient blip
   });
   const product = products[0];
 
@@ -191,6 +193,7 @@ export async function setItemQuantity(userId, auth, productId, quantity) {
   const { products } = await catalog.post("/products/lookup", {
     body: { productIds: [productId] },
     auth,
+    idempotent: true, // read-only lookup: safe to retry a transient blip
   });
   const product = products[0];
 

@@ -105,20 +105,37 @@ async function makeShopper(i) {
     },
   });
 
-  await call("POST", "/cart/items", {
-    token,
-    cookie,
-    body: { productId: product.productId, quantity: 1 },
-  });
+  // Add to the cart, retrying transient setup failures. Without this, a dropped
+  // add during the concurrent setup leaves an empty cart that only surfaces as a
+  // spurious CART_EMPTY at checkout and gets miscounted as an oversell failure,
+  // rather than the setup hiccup it is. A 409 (insufficient stock) is a real
+  // business answer, not transient, so we stop on it.
+  let added;
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    added = await call("POST", "/cart/items", {
+      token,
+      cookie,
+      body: { productId: product.productId, quantity: 1 },
+    });
+    if (added.status === 201 || added.data?.error?.errorCode === "INSUFFICIENT_STOCK") break;
+    await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+  }
+  if (added.status !== 201) {
+    throw new Error(
+      `shopper ${i} setup: add-to-cart failed (${added.status} ${added.data?.error?.errorCode ?? ""})`,
+    );
+  }
 
   const preview = await call(
     "GET",
     `/checkout/preview?shippingAddressId=${addr.data.address.addressId}`,
-    {
-      token,
-      cookie,
-    },
+    { token, cookie },
   );
+  if (preview.status !== 200 || preview.data?.totals?.totalCents == null) {
+    throw new Error(
+      `shopper ${i} setup: checkout preview failed (${preview.status} ${preview.data?.error?.errorCode ?? ""})`,
+    );
+  }
 
   return {
     token,

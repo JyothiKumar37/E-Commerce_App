@@ -40,6 +40,7 @@ export function createServiceClient({
       headers = {},
       timeout: perCallTimeout,
       idempotencyKey,
+      idempotent = false,
       withResponse = false,
     } = {},
   ) {
@@ -60,7 +61,11 @@ export function createServiceClient({
       )}`;
     }
 
-    const maxAttempts = IDEMPOTENT_METHODS.has(method.toLowerCase()) ? retries + 1 : 1;
+    // A caller can opt a read-only POST (e.g. a catalog lookup) into retries
+    // with `idempotent: true`; other POSTs stay single-attempt so a genuine
+    // write is never replayed.
+    const retryable = idempotent || IDEMPOTENT_METHODS.has(method.toLowerCase());
+    const maxAttempts = retryable ? retries + 1 : 1;
     let lastError;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
