@@ -3,6 +3,12 @@
 deploymentMode: SingleBinary
 loki:
   auth_enabled: false
+  # SingleBinary runs exactly one instance, so the ring must expect one copy.
+  # The chart default is 3, which makes every read fail with "too many unhealthy
+  # instances in the ring" because a single healthy instance can never satisfy a
+  # replication factor of 3.
+  commonConfig:
+    replication_factor: 1
   storage:
     type: s3
     bucketNames:
