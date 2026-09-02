@@ -61,7 +61,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: recommendation-generation
-          image: 034768441662.dkr.ecr.ap-south-1.amazonaws.com/ecom/recommendation-generation:sha-4f18f9cf85ff
+          image: 034768441662.dkr.ecr.ap-south-1.amazonaws.com/ecom/recommendation-generation:sha-d1db46b60759
           imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
