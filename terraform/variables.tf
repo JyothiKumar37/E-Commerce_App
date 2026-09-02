@@ -93,3 +93,61 @@ variable "tags" {
     ManagedBy = "terraform"
   }
 }
+
+variable "db_instance_class" {
+  description = "RDS instance class. db.t4g.micro (ARM/Graviton) is free-tier eligible and cheaper than the x86 db.t3.micro; both qualify for the 750 free instance-hours/month."
+  type        = string
+  default     = "db.t4g.micro"
+}
+
+variable "db_allocated_storage" {
+  description = "Storage in GiB. 20 is the Free Tier ceiling for gp2 general-purpose SSD."
+  type        = number
+  default     = 20
+
+  validation {
+    condition     = var.db_allocated_storage <= 20
+    error_message = "Keep at or below 20 GiB to stay in the Free Tier."
+  }
+}
+
+variable "db_engine_version" {
+  description = "PostgreSQL engine version. Matches the in-cluster major (postgres:16.3-alpine). Pin to an available 16.x minor; verify with `aws rds describe-db-engine-versions --engine postgres`."
+  type        = string
+  default     = "16.3"
+}
+
+variable "db_backup_retention_days" {
+  description = "Automated backup retention. Any value >= 1 enables point-in-time recovery; 7 days is a sensible default and is free (backup storage up to the DB size is included)."
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.db_backup_retention_days >= 1
+    error_message = "Must be >= 1 so PITR is enabled."
+  }
+}
+
+variable "db_name" {
+  description = "Initial database name. Matches the in-cluster POSTGRES_DB."
+  type        = string
+  default     = "ecom"
+}
+
+variable "db_username" {
+  description = "Master username. Matches the in-cluster POSTGRES_USER."
+  type        = string
+  default     = "ecom"
+}
+
+variable "db_multi_az" {
+  description = "Multi-AZ standby. FALSE for the Free Tier — Multi-AZ doubles the instance cost. See the cost notes; this is the future paid HA upgrade."
+  type        = bool
+  default     = false
+}
+
+variable "db_deletion_protection" {
+  description = "Block accidental deletion. false for a demo so `terraform destroy` works; turn on for anything holding real data."
+  type        = bool
+  default     = false
+}

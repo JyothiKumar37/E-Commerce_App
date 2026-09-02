@@ -113,3 +113,26 @@ output "next_steps" {
     API_URL=https://jeds.shop/api node ../scripts/e2e.mjs
   EOT
 }
+
+output "rds_endpoint" {
+  description = "RDS PostgreSQL hostname. Goes into the host position of DATABASE_URL in ecom-secrets."
+  value       = aws_db_instance.rds.address
+}
+
+output "rds_port" {
+  description = "RDS port (5432)."
+  value       = aws_db_instance.rds.port
+}
+
+output "rds_db_name" {
+  description = "Initial database name (ecom)."
+  value       = aws_db_instance.rds.db_name
+}
+
+# Sensitive: only revealed with `terraform output -raw rds_database_url`, never
+# in normal plan/apply/output. See the tfstate caveat below.
+output "rds_database_url" {
+  description = "Assembled connection string for the ecom-secrets DATABASE_URL key. Sensitive."
+  value       = "postgres://${var.db_username}:${random_password.db.result}@${aws_db_instance.rds.address}:${aws_db_instance.rds.port}/${var.db_name}"
+  sensitive   = true
+}

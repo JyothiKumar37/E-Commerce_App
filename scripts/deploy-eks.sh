@@ -20,6 +20,7 @@
 #   bash scripts/deploy-eks.sh
 #   bash scripts/deploy-eks.sh --skip-dns          # skip Route 53 step
 #   bash scripts/deploy-eks.sh --skip-images       # skip set-images step
+#   bash scripts/deploy-eks.sh --use-rds            # use managed RDS instead of in-cluster Postgres
 #   bash scripts/deploy-eks.sh --branch develop     # ArgoCD tracks 'develop'
 #   TAG=v1.0.0 bash scripts/deploy-eks.sh          # specify image tag
 #
@@ -46,6 +47,10 @@ ARGOCD_NAMESPACE="argocd"
 ECOM_NAMESPACE="ecom"
 TAG="${TAG:-v1.0.0}"
 
+# RDS mode: "auto" detects from the rds_endpoint Terraform output; force with
+# --use-rds / --no-rds, or USE_RDS=true|false.
+USE_RDS="${USE_RDS:-auto}"
+
 SKIP_DNS=false
 SKIP_IMAGES=false
 
@@ -57,9 +62,11 @@ while [[ $# -gt 0 ]]; do
     --branch)       ARGOCD_BRANCH="$2"; shift 2 ;;
     --tag)          TAG="$2"; shift 2 ;;
     --repo)         ARGOCD_REPO="$2"; shift 2 ;;
+    --use-rds)      USE_RDS=true; shift ;;
+    --no-rds)       USE_RDS=false; shift ;;
     *)
       echo "Unknown option: $1" >&2
-      echo "Usage: $0 [--skip-dns] [--skip-images] [--branch <branch>] [--tag <tag>] [--repo <url>]" >&2
+      echo "Usage: $0 [--skip-dns] [--skip-images] [--branch <branch>] [--tag <tag>] [--repo <url>] [--use-rds|--no-rds]" >&2
       exit 1
       ;;
   esac
@@ -151,6 +158,20 @@ fi
 info "Cluster:  ${CLUSTER_NAME}"
 info "Region:   ${REGION}"
 info "Registry: ${ECR_REGISTRY}"
+
+# --- Resolve database mode (in-cluster Postgres vs managed RDS) ---
+RDS_ENDPOINT="$(echo "$TF_OUTPUT" | jq -r '.rds_endpoint.value // empty')"
+if [ "$USE_RDS" = "auto" ]; then
+  if [ -n "$RDS_ENDPOINT" ] && [ "$RDS_ENDPOINT" != "null" ]; then USE_RDS=true; else USE_RDS=false; fi
+fi
+if [ "$USE_RDS" = true ]; then
+  if [ -z "$RDS_ENDPOINT" ] || [ "$RDS_ENDPOINT" = "null" ]; then
+    fail "--use-rds requested but no 'rds_endpoint' Terraform output found. Apply the RDS stack first (terraform apply)."
+  fi
+  info "Database:  managed RDS (${RDS_ENDPOINT})"
+else
+  info "Database:  in-cluster Postgres"
+fi
 
 # Configure kubectl
 info "Configuring kubectl..."
@@ -319,6 +340,21 @@ kubectl apply -f k8s/ecom-secrets.yaml 2>&1 | sed 's/^/    /'
 kubectl apply -f k8s/ecom-config-configmap.yaml 2>&1 | sed 's/^/    /'
 success "Namespace '${ECOM_NAMESPACE}', secrets, and configmap applied"
 
+if [ "$USE_RDS" = true ]; then
+  info "Pointing ecom-secrets DATABASE_URL at RDS (from Terraform output)..."
+  RDS_DATABASE_URL="$(cd "${ROOT_DIR}/terraform" && terraform output -raw rds_database_url 2>/dev/null || true)"
+  if [ -z "$RDS_DATABASE_URL" ]; then
+    fail "Could not read 'rds_database_url' Terraform output. Is the RDS stack applied?"
+  fi
+  DB_URL_B64="$(printf '%s' "$RDS_DATABASE_URL" | base64 | tr -d '\n')"
+  PATCH_FILE="$(mktemp)"; chmod 600 "$PATCH_FILE"
+  printf 'data:\n  DATABASE_URL: %s\n' "$DB_URL_B64" > "$PATCH_FILE"
+  kubectl -n "$ECOM_NAMESPACE" patch secret ecom-secrets --type merge --patch-file "$PATCH_FILE" >/dev/null
+  rm -f "$PATCH_FILE"
+  unset RDS_DATABASE_URL DB_URL_B64
+  success "ecom-secrets DATABASE_URL now targets RDS"
+fi
+
 # ── Step 7: Deploy infrastructure ─────────────────────────────────────────
 step "Deploying infrastructure (Postgres, Redis, Elasticsearch)"
 
@@ -331,16 +367,41 @@ fi
 
 # PVCs first
 info "Applying PersistentVolumeClaims..."
+if [ "$USE_RDS" = false ]; then
+  kubectl apply -f k8s/postgres-data-persistentvolumeclaim.yaml 2>&1 | sed 's/^/    /'
+fi
 kubectl apply \
-  -f k8s/postgres-data-persistentvolumeclaim.yaml \
   -f k8s/redis-data-persistentvolumeclaim.yaml \
   -f k8s/elastic-data-persistentvolumeclaim.yaml \
   2>&1 | sed 's/^/    /'
 success "PVCs applied"
 
 # Infrastructure deployments + services
-info "Deploying Postgres..."
-kubectl apply -f k8s/postgres-deployment.yaml -f k8s/postgres-service.yaml 2>&1 | sed 's/^/    /'
+if [ "$USE_RDS" = false ]; then
+  info "Deploying Postgres..."
+  kubectl apply -f k8s/postgres-deployment.yaml -f k8s/postgres-service.yaml 2>&1 | sed 's/^/    /'
+else
+  info "Skipping in-cluster Postgres (using managed RDS)..."
+  # Compatibility alias: the migrate Job's wait-for-postgres initContainer runs
+  # `pg_isready -h postgres`. An ExternalName Service maps the name 'postgres'
+  # to the RDS endpoint so that name-based client resolves to RDS. (For a fresh
+  # RDS build; a pre-existing ClusterIP 'postgres' Service would need deleting
+  # first, but in RDS mode we never create one.)
+  kubectl apply -f - >/dev/null <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: ${ECOM_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: ecom
+spec:
+  type: ExternalName
+  externalName: ${RDS_ENDPOINT}
+EOF
+  success "postgres -> RDS ExternalName alias created"
+fi
 
 info "Deploying Redis..."
 kubectl apply -f k8s/redis-deployment.yaml -f k8s/redis-service.yaml 2>&1 | sed 's/^/    /'
@@ -349,9 +410,11 @@ info "Deploying Elasticsearch..."
 kubectl apply -f k8s/elasticsearch-deployment.yaml -f k8s/elasticsearch-service.yaml 2>&1 | sed 's/^/    /'
 
 # Wait for infrastructure to be healthy
-info "Waiting for Postgres to be ready..."
-kubectl -n "$ECOM_NAMESPACE" wait --for=condition=available deploy/postgres --timeout=420s 2>&1 | sed 's/^/    /'
-success "Postgres is ready"
+if [ "$USE_RDS" = false ]; then
+  info "Waiting for Postgres to be ready..."
+  kubectl -n "$ECOM_NAMESPACE" wait --for=condition=available deploy/postgres --timeout=420s 2>&1 | sed 's/^/    /'
+  success "Postgres is ready"
+fi
 
 info "Waiting for Redis to be ready..."
 kubectl -n "$ECOM_NAMESPACE" wait --for=condition=available deploy/redis --timeout=420s 2>&1 | sed 's/^/    /'
@@ -383,6 +446,11 @@ success "Seed data loaded"
 # ── Step 9: Create ArgoCD Application ─────────────────────────────────────
 step "Creating ArgoCD Application for GitOps"
 
+ARGOCD_EXCLUDE='ecom-secrets.yaml,ecom-secrets.example.yaml,eks/*,migrate-job.yaml,seed-job.yaml'
+if [ "$USE_RDS" = true ]; then
+  ARGOCD_EXCLUDE="${ARGOCD_EXCLUDE},postgres-deployment.yaml,postgres-service.yaml,postgres-data-persistentvolumeclaim.yaml"
+fi
+
 cat <<EOF | kubectl apply -f - 2>&1 | sed 's/^/    /'
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -408,7 +476,9 @@ spec:
       # immutable, so once they have run ArgoCD cannot apply an image-tag
       # bump to them and errors with "field is immutable". They are one-shot
       # bootstrap Jobs applied out of band (Step 8), not part of the synced app.
-      exclude: '{ecom-secrets.yaml,ecom-secrets.example.yaml,eks/*,migrate-job.yaml,seed-job.yaml}'
+      # In RDS mode the postgres manifests are also excluded so ArgoCD does not
+      # recreate the in-cluster Postgres and fight the ExternalName alias.
+      exclude: '{${ARGOCD_EXCLUDE}}'
   destination:
     server: https://kubernetes.default.svc
     namespace: ${ECOM_NAMESPACE}
@@ -490,6 +560,11 @@ echo ""
 echo -e "  ${BOLD}Storefront:${NC}      ${DOMAIN}"
 echo -e "  ${BOLD}API Gateway:${NC}     ${DOMAIN}/api"
 echo -e "  ${BOLD}Cluster:${NC}         ${CLUSTER_NAME} (${REGION})"
+if [ "$USE_RDS" = true ]; then
+  echo -e "  ${BOLD}Database:${NC}        managed RDS (${RDS_ENDPOINT})"
+else
+  echo -e "  ${BOLD}Database:${NC}        in-cluster Postgres"
+fi
 echo -e "  ${BOLD}ECR Registry:${NC}    ${ECR_REGISTRY}"
 echo -e "  ${BOLD}Image Tag:${NC}       ${TAG}"
 echo ""
