@@ -113,3 +113,6 @@ tmp/
 .tmp/
 *.orig
 *.rej
+
+# Kiro spec workspace — local planning/design docs, not needed at runtime
+.kiro/
