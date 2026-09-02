@@ -118,9 +118,9 @@ variable "db_engine_version" {
 }
 
 variable "db_backup_retention_days" {
-  description = "Automated backup retention. Any value >= 1 enables point-in-time recovery; 7 days is a sensible default and is free (backup storage up to the DB size is included)."
+  description = "Automated backup retention. Any value >= 1 enables point-in-time recovery; The newer AWS Free Tier (Free Plan) caps this below the classic 7-day allowance, so the default is 1 day; a paid plan supports up to 35 for a longer PITR window."
   type        = number
-  default     = 7
+  default     = 1
 
   validation {
     condition     = var.db_backup_retention_days >= 1
