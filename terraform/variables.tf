@@ -114,7 +114,7 @@ variable "db_allocated_storage" {
 variable "db_engine_version" {
   description = "PostgreSQL engine version. Matches the in-cluster major (postgres:16.3-alpine). Pin to an available 16.x minor; verify with `aws rds describe-db-engine-versions --engine postgres`."
   type        = string
-  default     = "16.3"
+  default     = "16.15"
 }
 
 variable "db_backup_retention_days" {
