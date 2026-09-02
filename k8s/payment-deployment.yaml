@@ -119,7 +119,7 @@ spec:
             - name: PAYMENT_PROVIDER
               value: mock
             - name: PGSSLMODE
-              value: disable
+              value: no-verify
             - name: PORT
               value: "8085"
             - name: REDIS_URL

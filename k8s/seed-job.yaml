@@ -87,7 +87,7 @@ spec:
                   name: ecom-secrets
                   key: DATABASE_URL
             - name: PGSSLMODE
-              value: disable
+              value: no-verify
             # Postgres is reachable only inside the namespace, so the production
             # TLS requirement is waived deliberately rather than by omission.
             - name: ALLOW_INSECURE_DB_CONNECTION

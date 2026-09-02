@@ -144,7 +144,7 @@ spec:
             - name: PAYMENT_SERVICE_URL
               value: http://payment:8085
             - name: PGSSLMODE
-              value: disable
+              value: no-verify
             - name: PLACE_ORDER_SERVICE_URL
               value: http://place-order:8086
             - name: PORT
