@@ -70,7 +70,7 @@ spec:
             limits: { cpu: 100m, memory: 64Mi }
       containers:
         - name: seed
-          image: 034768441662.dkr.ecr.ap-south-1.amazonaws.com/ecom/database:sha-4b405d1dd59b
+          image: 034768441662.dkr.ecr.ap-south-1.amazonaws.com/ecom/database:sha-1f1311f75bfd
           imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
