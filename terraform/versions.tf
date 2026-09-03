@@ -19,7 +19,7 @@
 # configuration not known until apply" failure and the -target dance that
 # follows. With only the AWS provider here, a single apply always works.
 terraform {
-  required_version = ">= 1.5"
+  required_version = ">= 1.10"
 
   required_providers {
     aws = {
@@ -45,11 +45,11 @@ terraform {
   # Versioning is the part people skip and later regret — it is the only way
   # back from a truncated or corrupted state file.
   #
-  # backend "s3" {
-  #   bucket       = "ecom-tfstate-034768441662"
-  #   key          = "eks/terraform.tfstate"
-  #   region       = "ap-south-1"
-  #   encrypt      = true
-  #   use_lockfile = true   # S3-native locking, Terraform >= 1.10; no DynamoDB table
-  # }
+  backend "s3" {
+    bucket       = "ecom-tfstate-034768441662"
+    key          = "eks/terraform.tfstate"
+    region       = "ap-south-1"
+    encrypt      = true
+    use_lockfile = true   # S3-native locking, Terraform >= 1.10; no DynamoDB table
+  }
 }
