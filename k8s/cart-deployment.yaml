@@ -73,7 +73,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: cart
-          image: 034768441662.dkr.ecr.ap-south-1.amazonaws.com/ecom/cart:sha-4b405d1dd59b
+          image: 034768441662.dkr.ecr.ap-south-1.amazonaws.com/ecom/cart:sha-1f1311f75bfd
           imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
