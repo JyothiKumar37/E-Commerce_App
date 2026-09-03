@@ -142,7 +142,7 @@ Deliberately deferred (mostly paid-tier) hardening: **Multi-AZ** RDS with automa
 
 ## 👤 Author
 
-**[Your Name]** — _Cloud / DevOps / Backend Engineer_
-🔗 [LinkedIn](https://linkedin.com/in/your-handle) · 🌐 [Portfolio](https://your-site.com) · 💻 [github.com/JyothiKumar37](https://github.com/JyothiKumar37)
+**Jyothi Kumar** — _Cloud / DevOps / Backend Engineer_
+🔗 LinkedIn _(add link)_ · 🌐 Portfolio _(add link)_ · 💻 [github.com/JyothiKumar37](https://github.com/JyothiKumar37)
 
 > Built as a hands-on, production-style project covering the full lifecycle: microservices, containers, Kubernetes on AWS, Infrastructure as Code, CI/CD, GitOps, observability, and a managed database migration.
