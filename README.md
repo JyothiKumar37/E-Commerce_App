@@ -44,16 +44,16 @@ A complete online-store backend — browse and search products, register and sig
 
 ## Tech Stack
 
-| Area | Technologies |
-|------|--------------|
-| **Language / Runtime** | Node.js (JavaScript) |
-| **Architecture** | Microservices · REST · API gateway · saga-based checkout |
-| **Data stores** | PostgreSQL (AWS RDS) · Redis · Elasticsearch |
-| **Containers & Orchestration** | Docker · Kubernetes (Amazon EKS) |
-| **Infrastructure as Code** | Terraform (remote S3 state, locking) |
-| **CI/CD & GitOps** | GitHub Actions (OIDC) · ArgoCD · Amazon ECR |
-| **Observability** | Prometheus · Grafana · Loki · Tempo · Alertmanager |
-| **AWS Services** | EKS · RDS · VPC · ECR · NLB · Route 53 · S3 · IAM |
+| Area                           | Technologies                                             |
+| ------------------------------ | -------------------------------------------------------- |
+| **Language / Runtime**         | Node.js (JavaScript)                                     |
+| **Architecture**               | Microservices · REST · API gateway · saga-based checkout |
+| **Data stores**                | PostgreSQL (AWS RDS) · Redis · Elasticsearch             |
+| **Containers & Orchestration** | Docker · Kubernetes (Amazon EKS)                         |
+| **Infrastructure as Code**     | Terraform (remote S3 state, locking)                     |
+| **CI/CD & GitOps**             | GitHub Actions (OIDC) · ArgoCD · Amazon ECR              |
+| **Observability**              | Prometheus · Grafana · Loki · Tempo · Alertmanager       |
+| **AWS Services**               | EKS · RDS · VPC · ECR · NLB · Route 53 · S3 · IAM        |
 
 ---
 
@@ -92,21 +92,21 @@ Shoppers reach the storefront over HTTPS; an AWS load balancer and ingress contr
 
 ## Services
 
-| Service | Responsibility |
-|---------|----------------|
-| `api-gateway` | Single public entry point; routing and auth boundary |
-| `account` | Registration, sign-in (JWT + refresh-token rotation), profiles, addresses |
-| `cart` | Cart management with server-side pricing and VAT |
-| `inventory` | Stock, reservations, and oversell protection |
-| `place-order` | Checkout orchestration (saga) with idempotency |
-| `payment` | Payment processing |
-| `order-status` | Order lifecycle and timeline |
-| `shipping` | Shipment creation and tracking |
-| `product-review` | Reviews, verified-purchase detection, rating summaries |
-| `search` | Product catalog and full-text search (Elasticsearch) |
-| `recommendation` | Related products, trending, personalized feed |
-| `recommendation-generation` | Batch computation of recommendations |
-| `web` | Storefront frontend |
+| Service                     | Responsibility                                                            |
+| --------------------------- | ------------------------------------------------------------------------- |
+| `api-gateway`               | Single public entry point; routing and auth boundary                      |
+| `account`                   | Registration, sign-in (JWT + refresh-token rotation), profiles, addresses |
+| `cart`                      | Cart management with server-side pricing and VAT                          |
+| `inventory`                 | Stock, reservations, and oversell protection                              |
+| `place-order`               | Checkout orchestration (saga) with idempotency                            |
+| `payment`                   | Payment processing                                                        |
+| `order-status`              | Order lifecycle and timeline                                              |
+| `shipping`                  | Shipment creation and tracking                                            |
+| `product-review`            | Reviews, verified-purchase detection, rating summaries                    |
+| `search`                    | Product catalog and full-text search (Elasticsearch)                      |
+| `recommendation`            | Related products, trending, personalized feed                             |
+| `recommendation-generation` | Batch computation of recommendations                                      |
+| `web`                       | Storefront frontend                                                       |
 
 ---
 
@@ -126,7 +126,7 @@ API_URL=https://jeds.shop/api node scripts/e2e.mjs        # 91 functional checks
 API_URL=https://jeds.shop/api node scripts/oversell.mjs   # concurrency / no oversell
 ```
 
-**Teardown:** delete the ingress LoadBalancer Service *before* `terraform destroy` (so the load balancer's network interfaces release from the VPC), then run `terraform destroy`.
+**Teardown:** delete the ingress LoadBalancer Service _before_ `terraform destroy` (so the load balancer's network interfaces release from the VPC), then run `terraform destroy`.
 
 ---
 
